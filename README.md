@@ -1,0 +1,1 @@
+This is a small repo which is a work in progress adaptation of the macro from https://github.com/GiacomoPope/fp2 so I can have familiar arithmetic for C projects. Currently optimizing the fp layer before working on the fp2 side (which should be relatively easy).
