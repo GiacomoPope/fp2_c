@@ -1,11 +1,10 @@
-# p245_5_VALUE   := 0x4ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+p248_5_VALUE  := "5 * 2**248 - 1"
+p_coral_VALUE := "51 * 2**2026 - 1"
 # p308_633_VALUE := 0x278fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 # p628_317_VALUE := 0x13cfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
-# PRIMES    := p245_5 p308_633 p628_317
-
-p_coral_VALUE := "51 * 2**2026 - 1"
-PRIMES        := p_coral
+# PRIMES    := p248_5 p308_633 p628_317
+PRIMES        := p248_5 p_coral
 
 CC        := gcc
 CFLAGS    := -Wall -Wextra -std=c99 -O3
@@ -16,7 +15,10 @@ GEN_SCRIPT:= generator/gen_fp.py
 
 # Benchmark binary for the static Scott benchmark
 # TODO: generalise this to allow building multiple scott benchmarks
-BENCH_SCOTT_BIN := $(BUILD_DIR)/bench_scott
+BENCH_SCOTT_248_BIN := $(BUILD_DIR)/bench_scott_p248
+BENCH_SCOTT_CORAL_BIN := $(BUILD_DIR)/bench_scott_coral
+
+
 
 # Lists of generated test and benchmark binaries
 TEST_BINS  := $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/test_fp) \
@@ -36,19 +38,25 @@ tests: $(TEST_BINS)
 		./$$test || exit 1; \
 	done
 
-bench: $(BENCH_BINS) $(BENCH_SCOTT_BIN)
+bench: $(BENCH_BINS) $(BENCH_SCOTT_248_BIN) $(BENCH_SCOTT_CORAL_BIN)
 	@for bench in $(BENCH_BINS); do \
 		echo "=== Running $$bench ==="; \
 		./$$bench || exit 1; \
 	done
-	@echo "=== Running $(BENCH_SCOTT_BIN) ==="
-	@./$(BENCH_SCOTT_BIN)
+	@echo "=== Running $(BENCH_SCOTT_248_BIN) ==="
+	@./$(BENCH_SCOTT_248_BIN)
+	@echo "=== Running $(BENCH_SCOTT_CORAL_BIN) ==="
+	@./$(BENCH_SCOTT_CORAL_BIN)
+
 
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
-$(BENCH_SCOTT_BIN): src/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude src/fp_scott_bench.c bench/bench_scott.c -o $@
+$(BENCH_SCOTT_248_BIN): src/scott/p_248/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_248 src/fp_scott_bench.c bench/bench_scott.c -o $@
+
+$(BENCH_SCOTT_CORAL_BIN): src/scott/p_coral/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_coral src/fp_scott_bench.c bench/bench_scott.c -o $@
 
 # Outputs directly to root include/generated/<prime> and src/generated/<prime>
 .PRECIOUS: include/generated/%/fp_defs.h src/generated/%/fp.c
