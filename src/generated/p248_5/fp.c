@@ -385,6 +385,7 @@ fp_sqr(fp_t *out, const fp_t *a)
     uint64_t f = a->limb[0];
     uint64_t cc;
     mul_u64(&t[1], &cc, f, a->limb[1]);
+    #pragma clang loop unroll(full)
     for (size_t j = 2; j < FP_LIMBS; j++) {
         uint64_t hi;
         mul_add(&t[j], &hi, f, a->limb[j], cc);
@@ -392,6 +393,7 @@ fp_sqr(fp_t *out, const fp_t *a)
     }
     t[FP_LIMBS] = cc;
 
+    #pragma clang loop unroll(full)
     for (size_t i = 1; i < FP_LIMBS - 1; i++) {
         f = a->limb[i];
         uint64_t hi;
@@ -406,6 +408,7 @@ fp_sqr(fp_t *out, const fp_t *a)
     }
 
     cc = 0;
+    #pragma clang loop unroll(full)
     for (size_t i = 1; i < FP_LIMBS * 2 - 1; i++) {
         uint64_t w = t[i];
         uint64_t hi = w >> 63;
@@ -415,6 +418,7 @@ fp_sqr(fp_t *out, const fp_t *a)
     t[FP_LIMBS * 2 - 1] = cc;
 
     cc = 0;
+    #pragma clang loop unroll(full)
     for (size_t i = 0; i < FP_LIMBS; i++) {
         uint64_t lo, hi;
         mul_u64(&lo, &hi, a->limb[i], a->limb[i]);
