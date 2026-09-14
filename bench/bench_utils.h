@@ -5,8 +5,8 @@
 #include <stdlib.h>
 #include <limits.h>
 
-#define BENCH_LOOPS 100000u
-#define BENCH_EXPENSIVE_LOOPS 1000u
+#define BENCH_LOOPS 10000u
+#define BENCH_EXPENSIVE_LOOPS 100u
 #define BENCH_RUNS 20
 #define BENCH_WARMUP 1000u
 

@@ -208,32 +208,6 @@ main(void)
     }
     print_result("GF(p) mul_small", runs, BENCH_LOOPS, 6);
 
-    /* GF(p) sum of products, there's no version of this for Scott, so this will be slow */
-    for (int i = 0; i < BENCH_RUNS; i++) {
-        uint64_t start = cpucycles();
-        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
-            scott_sum_of_products(r, a, b, c, d);
-            scott_sum_of_products(a, r, b, c, d);
-            scott_sum_of_products(b, a, c, d, r);
-            scott_sum_of_products(c, b, d, a, r);
-        }
-        runs[i] = cpucycles() - start;
-    }
-    print_result("GF(p) sum of products", runs, BENCH_LOOPS, 4);
-
-    /* GF(p) difference of products, there's no version of this for Scott, so this will be slow */
-    for (int i = 0; i < BENCH_RUNS; i++) {
-        uint64_t start = cpucycles();
-        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
-            scott_difference_of_products(r, a, b, c, d);
-            scott_difference_of_products(a, r, b, c, d);
-            scott_difference_of_products(b, a, c, d, r);
-            scott_difference_of_products(c, b, d, a, r);
-        }
-        runs[i] = cpucycles() - start;
-    }
-    print_result("GF(p) difference of products", runs, BENCH_LOOPS, 4);
-
     /* GF(p) half */
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();

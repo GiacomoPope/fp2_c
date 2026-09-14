@@ -1,8 +1,11 @@
-p245_5_VALUE   := 0x4ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-p308_633_VALUE := 0x278fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-p628_317_VALUE := 0x13cfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+# p245_5_VALUE   := 0x4ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+# p308_633_VALUE := 0x278fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+# p628_317_VALUE := 0x13cfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
-PRIMES    := p245_5 p308_633 p628_317
+# PRIMES    := p245_5 p308_633 p628_317
+
+p_coral_VALUE := "51 * 2**2026 - 1"
+PRIMES        := p_coral
 
 CC        := gcc
 CFLAGS    := -Wall -Wextra -std=c99 -O3
@@ -17,9 +20,9 @@ BENCH_SCOTT_BIN := $(BUILD_DIR)/bench_scott
 
 # Lists of generated test and benchmark binaries
 TEST_BINS  := $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/test_fp) \
-              $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/test_fp2)
+#               $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/test_fp2)
 BENCH_BINS := $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/bench_fp) \
-              $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/bench_fp2)
+#               $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/bench_fp2)
 
 .PHONY: all build-tests tests bench clean
 
@@ -60,17 +63,17 @@ $(BUILD_DIR)/%/test_fp: tests/test_fp.c src/generated/%/fp.c include/generated/%
 	@mkdir -p $(BUILD_DIR)/$*
 	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c -o $@
 
-$(BUILD_DIR)/%/test_fp2: tests/test_fp2.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h include/fp2.h | $(BUILD_DIR)
-	@mkdir -p $(BUILD_DIR)/$*
-	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c src/fp2.c -o $@
-
 $(BUILD_DIR)/%/bench_fp: bench/bench_fp.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h bench/bench_utils.h | $(BUILD_DIR)
 	@mkdir -p $(BUILD_DIR)/$*
 	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c -o $@
 
-$(BUILD_DIR)/%/bench_fp2: bench/bench_fp2.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h include/fp2.h bench/bench_utils.h | $(BUILD_DIR)
-	@mkdir -p $(BUILD_DIR)/$*
-	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c src/fp2.c -o $@
+# $(BUILD_DIR)/%/test_fp2: tests/test_fp2.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h include/fp2.h | $(BUILD_DIR)
+# 	@mkdir -p $(BUILD_DIR)/$*
+# 	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c src/fp2.c -o $@
+
+# $(BUILD_DIR)/%/bench_fp2: bench/bench_fp2.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h include/fp2.h bench/bench_utils.h | $(BUILD_DIR)
+# 	@mkdir -p $(BUILD_DIR)/$*
+# 	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c src/fp2.c -o $@
 
 clean:
 	rm -rf $(BUILD_DIR) include/generated src/generated

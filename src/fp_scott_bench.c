@@ -81,19 +81,3 @@ scott_modhaf(scott_fp_t a)
 {
     modhaf(a);
 }
-
-void
-scott_sum_of_products(scott_fp_t r, const scott_fp_t a1, const scott_fp_t b1, const scott_fp_t a2, const scott_fp_t b2)
-{
-    scott_fp_t a, b;
-    modmul(a1, b1, a);
-    modmul(a2, b2, b);
-    modadd(a, b, r);
-}
-void scott_difference_of_products(scott_fp_t r, const scott_fp_t a1, const scott_fp_t b1, const scott_fp_t a2, const scott_fp_t b2)
-{
-    scott_fp_t a, b;
-    modmul(a1, b1, a);
-    modmul(a2, b2, b);
-    modsub(a, b, r);
-}
