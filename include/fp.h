@@ -4,14 +4,23 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define FP_LIMBS 5
-#define FP_BITS 318
-#define FP_ENCODED_LENGTH 40
-#define FP_DECODE_REDUCE_CHUNK 32
+#include "fp_defs.h"
 
 typedef struct {
     uint64_t limb[FP_LIMBS];
 } fp_t;
+
+/* Set fp to 0 */
+void fp_set_zero(fp_t *x);
+
+/* Set fp to 1 */
+void fp_set_one(fp_t *x);
+
+/* Copy b into a */
+void fp_copy(fp_t *a, const fp_t *b);
+
+/* Set fp to val (val may be negative; result is reduced mod p). */
+void fp_set_small(fp_t *x, const int32_t val);
 
 /* Returns UINT32_MAX for equal values and 0 otherwise. */
 uint32_t fp_equals(const fp_t *a, const fp_t *b);
@@ -64,9 +73,14 @@ void fp_pow_pubexp(fp_t *r, const fp_t *a, const uint64_t e[FP_LIMBS]);
 
 /* Computes a square root. Returns UINT32_MAX on success, 0 otherwise. */
 uint32_t fp_sqrt(fp_t *r, const fp_t *a);
+
+/* Computes the inverse of a, if a = 0 then r is set to 0 */
 void fp_inv(fp_t *r, const fp_t *a);
 
-/* Invert all elements in place with Montgomery's trick. Zeros remain zero. */
+/* Computes r = a^((p + 3) / 4) */
+void fp_exp3div4(fp_t *r, const fp_t *a);
+
+/* Invert all elements in place with Montgomery's trick. If any element is zero, they all become zero. */
 void fp_batch_invert(fp_t *x, size_t len);
 
 /* 
@@ -77,13 +91,36 @@ void fp_batch_invert(fp_t *x, size_t len);
  */
 int32_t fp_legendre(const fp_t *a);
 
+/* Returns UINT32_MAX if a is square and zero otherwise */
+uint32_t fp_is_square(const fp_t *x);
+
 /* Returns UINT32_MAX on success, 0 if the input is not canonical. */
-uint32_t fp_decode(fp_t *out, const uint8_t in[FP_ENCODED_LENGTH]);
+uint32_t fp_decode(fp_t *out, const uint8_t in[FP_ENCODED_BYTES]);
 
 /* Decodes arbitrary-length little-endian bytes, reducing modulo p. */
 void fp_decode_reduce(fp_t *out, const uint8_t *in, size_t len);
 
 /* Always emits the unique canonical encoding. */
-void fp_encode(uint8_t out[FP_ENCODED_LENGTH], const fp_t *x);
+void fp_encode(uint8_t out[FP_ENCODED_BYTES], const fp_t *x);
+
+// Returns UINT32_MAX if a < b, 0 otherwise
+static inline uint32_t
+ct_lt_u8(uint8_t a, uint8_t b)
+{
+    uint32_t borrow_bit = (((uint32_t)a - (uint32_t)b) >> 8) & 1u;
+    return (uint32_t)(-(int32_t)borrow_bit);
+}
+
+// Returns UINT32_MAX if a == b, 0 otherwise
+static inline uint32_t
+ct_eq_u8(uint8_t a, uint8_t b)
+{
+    uint32_t x = (uint32_t)(a ^ b);
+    uint32_t nonzero = (x | (uint32_t)(-(int32_t)x)) >> 31;
+    return ~((uint32_t)(-(int32_t)nonzero));
+}
+
+// Returns UINT32_MAX if a < b, 0 otherwise where x are represented as little endian integers
+uint32_t fp_less_than(const fp_t *x1, const fp_t *x2);
 
 #endif /* FP_H */

@@ -5,19 +5,21 @@ p628_317_VALUE := 0x13cfffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 PRIMES    := p245_5 p308_633 p628_317
 
 CC        := gcc
-CFLAGS    := -Wall -Wextra -O3 -std=c99
+CFLAGS    := -Wall -Wextra -std=c99 -O3
 PYTHON    := python3
 
 BUILD_DIR := build
-GEN_SCRIPT:= generator/generate.py
+GEN_SCRIPT:= generator/gen_fp.py
 
 # Benchmark binary for the static Scott benchmark
 # TODO: generalise this to allow building multiple scott benchmarks
 BENCH_SCOTT_BIN := $(BUILD_DIR)/bench_scott
 
 # Lists of generated test and benchmark binaries
-TEST_BINS  := $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/test_fp)
-BENCH_BINS := $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/bench_fp)
+TEST_BINS  := $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/test_fp) \
+              $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/test_fp2)
+BENCH_BINS := $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/bench_fp) \
+              $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/bench_fp2)
 
 .PHONY: all build-tests tests bench clean
 
@@ -46,21 +48,29 @@ $(BENCH_SCOTT_BIN): src/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h
 	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude src/fp_scott_bench.c bench/bench_scott.c -o $@
 
 # Outputs directly to root include/generated/<prime> and src/generated/<prime>
-.PRECIOUS: include/generated/%/fp.h src/generated/%/fp.c
+.PRECIOUS: include/generated/%/fp_defs.h src/generated/%/fp.c
 
-include/generated/%/fp.h src/generated/%/fp.c: $(GEN_SCRIPT)
+include/generated/%/fp_defs.h src/generated/%/fp.c: $(GEN_SCRIPT)
 	@mkdir -p include/generated/$* src/generated/$*
 	$(PYTHON) $(GEN_SCRIPT) $($*_VALUE) \
 		--include-dir include/generated/$* \
 		--source-dir src/generated/$*
 
-$(BUILD_DIR)/%/test_fp: tests/test_fp.c src/generated/%/fp.c include/generated/%/fp.h | $(BUILD_DIR)
+$(BUILD_DIR)/%/test_fp: tests/test_fp.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h | $(BUILD_DIR)
 	@mkdir -p $(BUILD_DIR)/$*
 	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c -o $@
 
-$(BUILD_DIR)/%/bench_fp: bench/bench_fp.c src/generated/%/fp.c include/generated/%/fp.h | $(BUILD_DIR)
+$(BUILD_DIR)/%/test_fp2: tests/test_fp2.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h include/fp2.h | $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/$*
+	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c src/fp2.c -o $@
+
+$(BUILD_DIR)/%/bench_fp: bench/bench_fp.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h bench/bench_utils.h | $(BUILD_DIR)
 	@mkdir -p $(BUILD_DIR)/$*
 	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c -o $@
+
+$(BUILD_DIR)/%/bench_fp2: bench/bench_fp2.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h include/fp2.h bench/bench_utils.h | $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/$*
+	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c src/fp2.c -o $@
 
 clean:
 	rm -rf $(BUILD_DIR) include/generated src/generated

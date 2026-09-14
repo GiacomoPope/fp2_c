@@ -13,11 +13,37 @@ static const fp_t FP_ONE = { .limb = { UINT64_C(0x000000000000000c), UINT64_C(0x
 static const fp_t FP_R2_ELEM = { .limb = { UINT64_C(0x751908e21eb00d92), UINT64_C(0xfa58d532e081361b), UINT64_C(0x7853fcc50c1d1292), UINT64_C(0x47dfb27922b9bdc7), UINT64_C(0xbcf8bb5b4169cab3), UINT64_C(0xb751908e21eb00ce), UINT64_C(0x2fa58d532e081361), UINT64_C(0x77853fcc50c1d129), UINT64_C(0x347dfb27922b9bdc), UINT64_C(0x0f2f8bb5b4169cab) } };
 static const fp_t FP_TDEC_ELEM = { .limb = { UINT64_C(0xfa58d532e081361b), UINT64_C(0x7853fcc50c1d1292), UINT64_C(0x47dfb27922b9bdc7), UINT64_C(0xbcf8bb5b4169cab3), UINT64_C(0xb751908e21eb00ce), UINT64_C(0x2fa58d532e081361), UINT64_C(0x77853fcc50c1d129), UINT64_C(0x347dfb27922b9bdc), UINT64_C(0xebcf8bb5b4169cab), UINT64_C(0x091000000000000c) } };
 static const uint64_t FP_SQRT_EXP[FP_LIMBS] = { UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000), UINT64_C(0x0000000000000000), UINT64_C(0x04f4000000000000) };
+static const uint64_t FP_P_MINUS_3_DIV_FOUR[FP_LIMBS] = { UINT64_C(0xffffffffffffffff), UINT64_C(0xffffffffffffffff), UINT64_C(0xffffffffffffffff), UINT64_C(0xffffffffffffffff), UINT64_C(0xffffffffffffffff), UINT64_C(0xffffffffffffffff), UINT64_C(0xffffffffffffffff), UINT64_C(0xffffffffffffffff), UINT64_C(0xffffffffffffffff), UINT64_C(0x04f3ffffffffffff) };
 static const size_t FP_NUM1 = 40;
 static const size_t FP_NUM2 = 32;
 static const fp_t FP_TFIXDIV = { .limb = { UINT64_C(0x809f53b797fe57fa), UINT64_C(0x09e08b7142964a4f), UINT64_C(0xc6db131cb94bf295), UINT64_C(0x376c0229bd8acdc1), UINT64_C(0xad097dcf4a5942fa), UINT64_C(0xc7a4d7a385596a76), UINT64_C(0xeec03cc2ee08b85c), UINT64_C(0x8deb40bdab0600b8), UINT64_C(0x1e0c8fb23b48ca3f), UINT64_C(0x034488141ad793b1) } };
 
-void
+inline void
+fp_set_zero(fp_t *x)
+{
+    for (size_t i = 0; i < FP_LIMBS; i++)
+        x->limb[i] = 0;
+}
+
+inline void
+fp_set_one(fp_t *x)
+{
+    *x = FP_ONE;
+}
+
+inline void
+fp_copy(fp_t *a, const fp_t *b)
+{
+    *a = *b;
+}
+
+inline void
+fp_set_small(fp_t *x, const int32_t val)
+{
+    fp_mul_small(x, &FP_ONE, val);
+}
+
+inline void
 fp_add(fp_t *r, const fp_t *a, const fp_t *b)
 {
     fp_t t;
@@ -44,7 +70,7 @@ fp_add(fp_t *r, const fp_t *a, const fp_t *b)
     *r = t;
 }
 
-void
+inline void
 fp_sub(fp_t *r, const fp_t *a, const fp_t *b)
 {
     fp_t t;
@@ -65,7 +91,7 @@ fp_sub(fp_t *r, const fp_t *a, const fp_t *b)
     *r = t;
 }
 
-void
+inline void
 fp_neg(fp_t *r, const fp_t *a)
 {
     fp_t t;
@@ -85,7 +111,7 @@ fp_neg(fp_t *r, const fp_t *a)
     *r = t;
 }
 
-void
+inline void
 fp_double(fp_t *out, const fp_t *a)
 {
     fp_t t = *a;
@@ -108,7 +134,7 @@ fp_double(fp_t *out, const fp_t *a)
     *out = t;
 }
 
-void
+inline void
 fp_half(fp_t *out, const fp_t *a)
 {
     fp_t t = *a;
@@ -126,7 +152,7 @@ fp_half(fp_t *out, const fp_t *a)
     *out = t;
 }
 
-uint32_t
+inline uint32_t
 fp_equals(const fp_t *a, const fp_t *b)
 {
     uint64_t r = 0;
@@ -136,7 +162,7 @@ fp_equals(const fp_t *a, const fp_t *b)
     return (uint32_t)(((r | (uint64_t)(0 - r)) >> 63) - 1);
 }
 
-uint32_t
+inline uint32_t
 fp_is_zero(const fp_t *a)
 {
     uint64_t x = a->limb[0];
@@ -151,7 +177,7 @@ fp_is_zero(const fp_t *a)
     return (uint32_t)(~s);
 }
 
-void
+inline void
 fp_select(fp_t *out, const fp_t *a, const fp_t *b, uint32_t ctl)
 {
     uint64_t c = (uint64_t)ctl | ((uint64_t)ctl << 32);
@@ -162,7 +188,7 @@ fp_select(fp_t *out, const fp_t *a, const fp_t *b, uint32_t ctl)
     }
 }
 
-void
+inline void
 fp_cond_swap(fp_t *a, fp_t *b, uint32_t ctl)
 {
     uint64_t c = (uint64_t)ctl | ((uint64_t)ctl << 32);
@@ -175,7 +201,7 @@ fp_cond_swap(fp_t *a, fp_t *b, uint32_t ctl)
     }
 }
 
-void
+inline void
 fp_cond_neg(fp_t *a, uint32_t ctl)
 {
     fp_t neg;
@@ -183,7 +209,29 @@ fp_cond_neg(fp_t *a, uint32_t ctl)
     fp_select(a, a, &neg, ctl);
 }
 
-static void
+inline uint32_t
+fp_less_than(const fp_t *x1, const fp_t *x2)
+{
+    uint8_t buf1[FP_ENCODED_BYTES];
+    uint8_t buf2[FP_ENCODED_BYTES];
+
+    fp_encode(buf1, x1);
+    fp_encode(buf2, x2);
+
+    uint32_t result = 0;
+    uint32_t all_equal_so_far = UINT32_MAX;
+
+    for (size_t idx = FP_ENCODED_BYTES; idx-- > 0;) {
+        uint32_t less = ct_lt_u8(buf1[idx], buf2[idx]);
+        uint32_t equal = ct_eq_u8(buf1[idx], buf2[idx]);
+        result |= all_equal_so_far & less;
+        all_equal_so_far &= equal;
+    }
+
+    return result;
+}
+
+static inline void
 fp_internal_reduce(fp_t *x)
 {
     for (size_t i = 0; i < FP_LIMBS; i++) {
@@ -207,7 +255,7 @@ fp_internal_reduce(fp_t *x)
 }
 
 \
-void
+inline void
 fp_mul_small(fp_t *out, const fp_t *a, int32_t k)
 {
     fp_t t = *a;
@@ -269,7 +317,7 @@ fp_mul_small(fp_t *out, const fp_t *a, int32_t k)
     fp_cond_neg(out, sk);
 }
 
-void
+inline void
 fp_mul(fp_t *out, const fp_t *a, const fp_t *b)
 {
     fp_t t = { { 0 } };
@@ -329,7 +377,7 @@ fp_mul(fp_t *out, const fp_t *a, const fp_t *b)
     *out = t;
 }
 
-void
+inline void
 fp_sqr(fp_t *out, const fp_t *a)
 {
     uint64_t t[FP_LIMBS * 2] = { 0 };
@@ -385,6 +433,7 @@ fp_sqr(fp_t *out, const fp_t *a)
     fp_add(out, &lo, &hi);
 }
 
+\
 void
 fp_n_sqr(fp_t *out, const fp_t *a, uint32_t n)
 {
@@ -394,7 +443,7 @@ fp_n_sqr(fp_t *out, const fp_t *a, uint32_t n)
     *out = t;
 }
 
-void
+inline void
 fp_sum_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
                    const fp_t *a2, const fp_t *b2)
 {
@@ -447,7 +496,7 @@ fp_sum_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
     *out = u;
 }
 
-void
+inline void
 fp_difference_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
                           const fp_t *a2, const fp_t *b2)
 {
@@ -459,7 +508,7 @@ fp_difference_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
     fp_sum_of_products(out, a1, b1, a2, &nb2);
 }
 
-static void
+static inline void
 fp_montylin(fp_t *out, const fp_t *u, const fp_t *v, uint64_t f, uint64_t g)
 {
     uint64_t sf = sign_word(f);
@@ -508,7 +557,7 @@ fp_montylin(fp_t *out, const fp_t *u, const fp_t *v, uint64_t f, uint64_t g)
     (void)carry;
 }
 
-static uint64_t
+static inline uint64_t
 fp_lindiv31abs(fp_t *out, const fp_t *a, const fp_t *b, uint64_t f, uint64_t g)
 {
     uint64_t sf = sign_word(f);
@@ -775,20 +824,28 @@ fp_legendre(const fp_t *x)
     return (int32_t)r;
 }
 
+uint32_t
+fp_is_square(const fp_t *a) {
+    int32_t val = fp_legendre(a);
+    return -(uint32_t)(val & ~(val >> 31));
+}
+    
 void
-fp_batch_invert(fp_t *x, size_t len)
-{
+fp_batch_invert(fp_t *x, size_t len) {
     size_t i = 0;
     while (i < len) {
         size_t blen = len - i;
         if (blen > 200)
             blen = 200;
+
         fp_t tt[200];
-        fp_t zero = { { 0 } };
+        fp_t zero;
+        fp_set_zero(&zero);
 
         tt[0] = x[i];
         uint32_t z0 = fp_equals(&tt[0], &zero);
         fp_select(&tt[0], &tt[0], &FP_ONE, z0);
+
         for (size_t j = 1; j < blen; j++) {
             tt[j] = x[i + j];
             uint32_t z = fp_equals(&tt[j], &zero);
@@ -798,10 +855,13 @@ fp_batch_invert(fp_t *x, size_t len)
 
         fp_t k;
         fp_inv(&k, &tt[blen - 1]);
+
+        // Backward pass
         for (size_t j = blen; j-- > 1;) {
             fp_t cur = x[i + j];
             uint32_t z = fp_equals(&cur, &zero);
             fp_select(&cur, &cur, &FP_ONE, z);
+
             fp_t prod;
             fp_mul(&prod, &k, &tt[j - 1]);
             fp_select(&x[i + j], &x[i + j], &prod, ~z);
@@ -846,7 +906,6 @@ fp_pow_pubexp(fp_t *out, const fp_t *a, const uint64_t e[FP_LIMBS])
     *out = t;
 }
 
-
 uint32_t
 fp_sqrt(fp_t *out, const fp_t *a)
 {
@@ -860,15 +919,21 @@ fp_sqrt(fp_t *out, const fp_t *a)
     for (size_t i = 0; i < FP_LIMBS; i++)
         y.limb[i] &= okmask;
 
-    uint8_t enc[FP_ENCODED_LENGTH];
+    uint8_t enc[FP_ENCODED_BYTES];
     fp_encode(enc, &y);
     fp_cond_neg(&y, (uint32_t)0 - (uint32_t)(enc[0] & 1u));
     *out = y;
     return ok;
 }
 
+void
+fp_exp3div4(fp_t *out, const fp_t *a)
+{
+    fp_pow_pubexp(out, a, FP_P_MINUS_3_DIV_FOUR);
+}
+
 static void
-fp_decode_nocheck(fp_t *out, const uint8_t in[FP_ENCODED_LENGTH])
+fp_decode_nocheck(fp_t *out, const uint8_t in[FP_ENCODED_BYTES])
 {
     fp_t raw = { { 0 } };
 
@@ -881,7 +946,7 @@ fp_decode_nocheck(fp_t *out, const uint8_t in[FP_ENCODED_LENGTH])
 
     {
         const size_t last = FP_LIMBS - 1;
-        const size_t last_bytes = FP_ENCODED_LENGTH - 8 * (FP_LIMBS - 1);
+        const size_t last_bytes = FP_ENCODED_BYTES - 8 * (FP_LIMBS - 1);
         uint64_t w = 0;
         for (size_t j = 0; j < last_bytes; j++)
             w |= (uint64_t)in[8 * last + j] << (8 * j);
@@ -892,7 +957,7 @@ fp_decode_nocheck(fp_t *out, const uint8_t in[FP_ENCODED_LENGTH])
 }
 
 uint32_t
-fp_decode(fp_t *out, const uint8_t in[FP_ENCODED_LENGTH])
+fp_decode(fp_t *out, const uint8_t in[FP_ENCODED_BYTES])
 {
     fp_t raw;
     fp_decode_nocheck(&raw, in);
@@ -916,7 +981,7 @@ void
 fp_decode_reduce(fp_t *out, const uint8_t *in, size_t len)
 {
     fp_t t = { { 0 } };
-    uint8_t tmp[FP_ENCODED_LENGTH];
+    uint8_t tmp[FP_ENCODED_BYTES];
 
     if (len == 0) {
         *out = t;
@@ -948,7 +1013,7 @@ fp_decode_reduce(fp_t *out, const uint8_t *in, size_t len)
 }
 
 void
-fp_encode(uint8_t out[FP_ENCODED_LENGTH], const fp_t *x)
+fp_encode(uint8_t out[FP_ENCODED_BYTES], const fp_t *x)
 {
     fp_t t = *x;
     fp_internal_reduce(&t);
@@ -962,7 +1027,7 @@ fp_encode(uint8_t out[FP_ENCODED_LENGTH], const fp_t *x)
 
     {
         const size_t last = FP_LIMBS - 1;
-        const size_t last_bytes = FP_ENCODED_LENGTH - 8 * (FP_LIMBS - 1);
+        const size_t last_bytes = FP_ENCODED_BYTES - 8 * (FP_LIMBS - 1);
         uint64_t w = t.limb[last];
 
         for (size_t j = 0; j < last_bytes; j++) {

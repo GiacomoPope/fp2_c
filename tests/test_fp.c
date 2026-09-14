@@ -32,7 +32,7 @@ random_bytes(uint8_t *out, size_t len)
 static void
 random_element(fp_t *x)
 {
-    uint8_t bytes[FP_ENCODED_LENGTH + 16];
+    uint8_t bytes[FP_ENCODED_BYTES + 16];
     random_bytes(bytes, sizeof(bytes));
     fp_decode_reduce(x, bytes, sizeof(bytes));
 }
@@ -40,8 +40,8 @@ random_element(fp_t *x)
 static void
 test_roundtrip(void)
 {
-    uint8_t in[FP_ENCODED_LENGTH] = { 0 };
-    uint8_t out[FP_ENCODED_LENGTH];
+    uint8_t in[FP_ENCODED_BYTES] = { 0 };
+    uint8_t out[FP_ENCODED_BYTES];
     fp_t x, y;
 
     assert(fp_decode(&x, in) == UINT32_MAX);
@@ -61,8 +61,8 @@ static void
 test_equals(void)
 {
     fp_t a, b;
-    uint8_t zero[FP_ENCODED_LENGTH] = { 0 };
-    uint8_t one[FP_ENCODED_LENGTH] = { 1 };
+    uint8_t zero[FP_ENCODED_BYTES] = { 0 };
+    uint8_t one[FP_ENCODED_BYTES] = { 1 };
 
     assert(fp_decode(&a, zero) == UINT32_MAX);
     assert(fp_decode(&b, zero) == UINT32_MAX);
@@ -92,9 +92,9 @@ test_is_zero(void)
 static void
 test_small_mul(void)
 {
-    uint8_t two[FP_ENCODED_LENGTH] = { 2 };
-    uint8_t three[FP_ENCODED_LENGTH] = { 3 };
-    uint8_t six[FP_ENCODED_LENGTH] = { 6 };
+    uint8_t two[FP_ENCODED_BYTES] = { 2 };
+    uint8_t three[FP_ENCODED_BYTES] = { 3 };
+    uint8_t six[FP_ENCODED_BYTES] = { 6 };
     fp_t a, b, c, want;
     assert(fp_decode(&a, two) == UINT32_MAX);
     assert(fp_decode(&b, three) == UINT32_MAX);
@@ -149,7 +149,7 @@ static void
 test_random_neg(void)
 {
     fp_t zero;
-    uint8_t z[FP_ENCODED_LENGTH] = { 0 };
+    uint8_t z[FP_ENCODED_BYTES] = { 0 };
     assert(fp_decode(&zero, z) == UINT32_MAX);
 
     for (unsigned i = 0; i < 1000; i++) {
@@ -183,8 +183,8 @@ test_random_sqrt(void)
 static void
 test_small_inv(void)
 {
-    uint8_t two[FP_ENCODED_LENGTH] = { 2 };
-    uint8_t one[FP_ENCODED_LENGTH] = { 1 };
+    uint8_t two[FP_ENCODED_BYTES] = { 2 };
+    uint8_t one[FP_ENCODED_BYTES] = { 1 };
     fp_t a, inv, check, want;
     assert(fp_decode(&a, two) == UINT32_MAX);
     assert(fp_decode(&want, one) == UINT32_MAX);
@@ -196,7 +196,7 @@ test_small_inv(void)
 static void
 test_random_inv(void)
 {
-    uint8_t zero[FP_ENCODED_LENGTH] = { 0 };
+    uint8_t zero[FP_ENCODED_BYTES] = { 0 };
     fp_t z, invz;
     assert(fp_decode(&z, zero) == UINT32_MAX);
     fp_inv(&invz, &z);
@@ -219,8 +219,8 @@ test_random_inv(void)
 static void
 test_legendre(void)
 {
-    uint8_t zero[FP_ENCODED_LENGTH] = { 0 };
-    uint8_t one[FP_ENCODED_LENGTH] = { 1 };
+    uint8_t zero[FP_ENCODED_BYTES] = { 0 };
+    uint8_t one[FP_ENCODED_BYTES] = { 1 };
     fp_t z, o, nqr;
     assert(fp_decode(&z, zero) == UINT32_MAX);
     assert(fp_decode(&o, one) == UINT32_MAX);
@@ -244,7 +244,7 @@ test_legendre(void)
 static void
 test_double(void)
 {
-    uint8_t two[FP_ENCODED_LENGTH] = { 2 };
+    uint8_t two[FP_ENCODED_BYTES] = { 2 };
     fp_t x, got, want;
     assert(fp_decode(&x, two) == UINT32_MAX);
 
@@ -271,7 +271,7 @@ test_mul_small(void)
             fp_mul_small(&got, &x, k);
 
             if (k == 0) {
-                uint8_t zero[FP_ENCODED_LENGTH] = { 0 };
+                uint8_t zero[FP_ENCODED_BYTES] = { 0 };
                 fp_decode(&want, zero);
             } else {
                 int32_t ak = k < 0 ? -k : k;
@@ -297,8 +297,8 @@ test_mul_small(void)
 static void
 test_ct_helpers(void)
 {
-    uint8_t one[FP_ENCODED_LENGTH] = { 1 };
-    uint8_t two[FP_ENCODED_LENGTH] = { 2 };
+    uint8_t one[FP_ENCODED_BYTES] = { 1 };
+    uint8_t two[FP_ENCODED_BYTES] = { 2 };
     fp_t a, b, r;
     assert(fp_decode(&a, one) == UINT32_MAX);
     assert(fp_decode(&b, two) == UINT32_MAX);
@@ -399,7 +399,7 @@ test_batch_invert(void)
         for (size_t i = 0; i < len; i++) {
             random_element(&v[i]);
             if ((i % 11) == 0) {
-                uint8_t z[FP_ENCODED_LENGTH] = { 0 };
+                uint8_t z[FP_ENCODED_BYTES] = { 0 };
                 assert(fp_decode(&v[i], z) == UINT32_MAX);
             }
             want[i] = v[i];
@@ -414,7 +414,7 @@ test_batch_invert(void)
                 fp_t check;
                 fp_mul(&check, &v[i], &want[i]);
                 fp_t one;
-                uint8_t one_bytes[FP_ENCODED_LENGTH] = { 0 };
+                uint8_t one_bytes[FP_ENCODED_BYTES] = { 0 };
                 one_bytes[0] = 1;
                 assert(fp_decode(&one, one_bytes) == UINT32_MAX);
                 assert(fp_equals(&check, &one) == UINT32_MAX);

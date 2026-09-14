@@ -26,7 +26,8 @@ class FieldGenerator:
         self.r2 = pow(2, 128 * self.n, p)
         self.clen = self.encoded_length - 1 if self.n == 1 else 8 * (self.n - 1)
         self.tdec = pow(2, 64 * self.n + 8 * self.clen, p)
-        self.sqrt_exp = (p + 1) // 4
+        self.sqrt_exp = (p + 1) // 4        
+        self.p_minus_three_div_four = (p - 3) // 4
         self.num1 = 0 if self.bits <= 32 else (2 * self.bits - 34) // 31
         remaining = max(2 * self.bits - 31 * self.num1, 0)
         self.num2 = remaining - 2 if remaining >= 2 else 0
@@ -60,97 +61,17 @@ class FieldGenerator:
     def array_literal(self, xs):
         return "{ " + ", ".join(self.c_u64(x) for x in xs) + " }"
 
-    def generate_header(self) -> str:
+    def generate_defs_header(self) -> str:
         return f"""\
-#ifndef FP_H
-#define FP_H
-
-#include <stddef.h>
-#include <stdint.h>
+#ifndef FP_DEFS_H
+#define FP_DEFS_H
 
 #define FP_LIMBS {self.n}
 #define FP_BITS {self.bits}
-#define FP_ENCODED_LENGTH {self.encoded_length}
+#define FP_ENCODED_BYTES {self.encoded_length}
 #define FP_DECODE_REDUCE_CHUNK {self.clen}
 
-typedef struct {{
-    uint64_t limb[FP_LIMBS];
-}} fp_t;
-
-/* Returns UINT32_MAX for equal values and 0 otherwise. */
-uint32_t fp_equals(const fp_t *a, const fp_t *b);
-
-/* Returns UINT32_MAX if this value is zero and 0 otherwise. */
-uint32_t fp_is_zero(const fp_t *a);
-
-/* r = a + b in GF(p). Aliasing is allowed. */
-void fp_add(fp_t *r, const fp_t *a, const fp_t *b);
-
-/* r = a - b in GF(p). Aliasing is allowed. */
-void fp_sub(fp_t *r, const fp_t *a, const fp_t *b);
-
-/* r = -a in GF(p). Aliasing is allowed. */
-void fp_neg(fp_t *r, const fp_t *a);
-
-/* r = 2*a in GF(p). Aliasing is allowed. */
-void fp_double(fp_t *r, const fp_t *a);
-
-/* r = a / 2 in GF(p). Aliasing is allowed. */
-void fp_half(fp_t *r, const fp_t *a);
-
-/* r = k*a in GF(p), for a signed 32-bit k. Aliasing is allowed. */
-void fp_mul_small(fp_t *r, const fp_t *a, int32_t k);
-
-/* r = a * b in GF(p). Aliasing is allowed. */
-void fp_mul(fp_t *r, const fp_t *a, const fp_t *b);
-
-/* r = a^2 in GF(p). Aliasing is allowed. */
-void fp_sqr(fp_t *r, const fp_t *a);
-
-/* r = a squared n times. */
-void fp_n_sqr(fp_t *r, const fp_t *a, uint32_t n);
-
-/* Computes r = a1*b1 + a2*b2 used for efficient fp2 arithmetic */
-void fp_sum_of_products(fp_t *r, const fp_t *a1, const fp_t *b1,
-                        const fp_t *a2, const fp_t *b2);
-    
-/* Computes r = a1*b1 - a2*b2 used for efficient fp2 arithmetic */
-void fp_difference_of_products(fp_t *r, const fp_t *a1, const fp_t *b1,
-                               const fp_t *a2, const fp_t *b2);
-
-/* Constant-time helpers. ctl MUST be either 0 or UINT32_MAX. */
-void fp_select(fp_t *r, const fp_t *a, const fp_t *b, uint32_t ctl);
-void fp_cond_swap(fp_t *a, fp_t *b, uint32_t ctl);
-void fp_cond_neg(fp_t *a, uint32_t ctl);
-
-/* r = a^e for a public exponent encoded as FP_LIMBS little-endian words. */
-void fp_pow_pubexp(fp_t *r, const fp_t *a, const uint64_t e[FP_LIMBS]);
-
-/* Computes a square root. Returns UINT32_MAX on success, 0 otherwise. */
-uint32_t fp_sqrt(fp_t *r, const fp_t *a);
-void fp_inv(fp_t *r, const fp_t *a);
-
-/* Invert all elements in place with Montgomery's trick. Zeros remain zero. */
-void fp_batch_invert(fp_t *x, size_t len);
-
-/* 
- * Legendre symbol on this value. Return value is:
- *  0   if this value is zero
- * +1   if this value is a non-zero quadratic residue
- * -1   if this value is not a quadratic residue 
- */
-int32_t fp_legendre(const fp_t *a);
-
-/* Returns UINT32_MAX on success, 0 if the input is not canonical. */
-uint32_t fp_decode(fp_t *out, const uint8_t in[FP_ENCODED_LENGTH]);
-
-/* Decodes arbitrary-length little-endian bytes, reducing modulo p. */
-void fp_decode_reduce(fp_t *out, const uint8_t *in, size_t len);
-
-/* Always emits the unique canonical encoding. */
-void fp_encode(uint8_t out[FP_ENCODED_LENGTH], const fp_t *x);
-
-#endif /* FP_H */
+#endif /* FP_DEFS_H */
 """
 
     def generate_constants(self) -> str:
@@ -163,15 +84,52 @@ static const fp_t FP_ONE = {{ .limb = {self.array_literal(self.limbs(self.r, sel
 static const fp_t FP_R2_ELEM = {{ .limb = {self.array_literal(self.limbs(self.r2, self.n))} }};
 static const fp_t FP_TDEC_ELEM = {{ .limb = {self.array_literal(self.limbs(self.tdec, self.n))} }};
 static const uint64_t FP_SQRT_EXP[FP_LIMBS] = {self.array_literal(self.limbs(self.sqrt_exp, self.n))};
+static const uint64_t FP_P_MINUS_3_DIV_FOUR[FP_LIMBS] = {self.array_literal(self.limbs(self.p_minus_three_div_four, self.n))};
 static const size_t FP_NUM1 = {self.num1};
 static const size_t FP_NUM2 = {self.num2};
 static const fp_t FP_TFIXDIV = {{ .limb = {self.array_literal(self.limbs(self.tfixdiv, self.n))} }};
 """
 
+    def generate_set_zero(self) -> str:
+        return """\
+inline void
+fp_set_zero(fp_t *x)
+{
+    for (size_t i = 0; i < FP_LIMBS; i++)
+        x->limb[i] = 0;
+}
+"""
+
+    def generate_set_one(self) -> str:
+        return """\
+inline void
+fp_set_one(fp_t *x)
+{
+    *x = FP_ONE;
+}
+"""
+
+    def generate_set_small(self) -> str:
+        return """\
+inline void
+fp_set_small(fp_t *x, const int32_t val)
+{
+    fp_mul_small(x, &FP_ONE, val);
+}
+"""
+
+    def generate_copy(self) -> str:
+        return """\
+inline void
+fp_copy(fp_t *a, const fp_t *b)
+{
+    *a = *b;
+}
+"""
 
     def generate_add(self) -> str:
         return """\
-void
+inline void
 fp_add(fp_t *r, const fp_t *a, const fp_t *b)
 {
     fp_t t;
@@ -201,7 +159,7 @@ fp_add(fp_t *r, const fp_t *a, const fp_t *b)
 
     def generate_sub(self) -> str:
         return """\
-void
+inline void
 fp_sub(fp_t *r, const fp_t *a, const fp_t *b)
 {
     fp_t t;
@@ -225,7 +183,7 @@ fp_sub(fp_t *r, const fp_t *a, const fp_t *b)
 
     def generate_neg(self) -> str:
         return """\
-void
+inline void
 fp_neg(fp_t *r, const fp_t *a)
 {
     fp_t t;
@@ -247,7 +205,8 @@ fp_neg(fp_t *r, const fp_t *a)
 """
 
     def generate_double(self) -> str:
-        return r"""void
+        return """\
+inline void
 fp_double(fp_t *out, const fp_t *a)
 {
     fp_t t = *a;
@@ -272,7 +231,8 @@ fp_double(fp_t *out, const fp_t *a)
 """
 
     def generate_half(self) -> str:
-        return """void
+        return """\
+inline void
 fp_half(fp_t *out, const fp_t *a)
 {
     fp_t t = *a;
@@ -293,7 +253,7 @@ fp_half(fp_t *out, const fp_t *a)
 
     def generate_equals(self) -> str:
         return """\
-uint32_t
+inline uint32_t
 fp_equals(const fp_t *a, const fp_t *b)
 {
     uint64_t r = 0;
@@ -306,7 +266,7 @@ fp_equals(const fp_t *a, const fp_t *b)
 
     def generate_is_zero(self) -> str:
         return """\
-uint32_t
+inline uint32_t
 fp_is_zero(const fp_t *a)
 {
     uint64_t x = a->limb[0];
@@ -323,7 +283,8 @@ fp_is_zero(const fp_t *a)
 """
 
     def generate_ct_helpers(self) -> str:
-        return r"""void
+        return """\
+inline void
 fp_select(fp_t *out, const fp_t *a, const fp_t *b, uint32_t ctl)
 {
     uint64_t c = (uint64_t)ctl | ((uint64_t)ctl << 32);
@@ -334,7 +295,7 @@ fp_select(fp_t *out, const fp_t *a, const fp_t *b, uint32_t ctl)
     }
 }
 
-void
+inline void
 fp_cond_swap(fp_t *a, fp_t *b, uint32_t ctl)
 {
     uint64_t c = (uint64_t)ctl | ((uint64_t)ctl << 32);
@@ -347,7 +308,7 @@ fp_cond_swap(fp_t *a, fp_t *b, uint32_t ctl)
     }
 }
 
-void
+inline void
 fp_cond_neg(fp_t *a, uint32_t ctl)
 {
     fp_t neg;
@@ -359,7 +320,7 @@ fp_cond_neg(fp_t *a, uint32_t ctl)
 
     def generate_reduce(self) -> str:
         return """\
-static void
+static inline void
 fp_internal_reduce(fp_t *x)
 {
     for (size_t i = 0; i < FP_LIMBS; i++) {
@@ -385,7 +346,7 @@ fp_internal_reduce(fp_t *x)
 
     def generate_mul(self) -> str:
         return """\
-void
+inline void
 fp_mul(fp_t *out, const fp_t *a, const fp_t *b)
 {
     fp_t t = { { 0 } };
@@ -448,7 +409,7 @@ fp_mul(fp_t *out, const fp_t *a, const fp_t *b)
 
     def generate_sqr(self) -> str:
         return """\
-void
+inline void
 fp_sqr(fp_t *out, const fp_t *a)
 {
     uint64_t t[FP_LIMBS * 2] = { 0 };
@@ -506,7 +467,8 @@ fp_sqr(fp_t *out, const fp_t *a)
 """
 
     def generate_n_sqr(self) -> str:
-        return r"""void
+        return r"""\
+void
 fp_n_sqr(fp_t *out, const fp_t *a, uint32_t n)
 {
     fp_t t = *a;
@@ -533,7 +495,7 @@ fp_n_sqr(fp_t *out, const fp_t *a, uint32_t n)
                 "(t.limb[FP_LIMBS - 1] >> %d);"
             ) % (96 - bl, bl - 32)
         return r"""\
-void
+inline void
 fp_mul_small(fp_t *out, const fp_t *a, int32_t k)
 {
     fp_t t = *a;
@@ -598,7 +560,8 @@ fp_mul_small(fp_t *out, const fp_t *a, int32_t k)
 
     
     def generate_sum_products(self) -> str:
-        return r"""void
+        return """\
+inline void
 fp_sum_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
                    const fp_t *a2, const fp_t *b2)
 {
@@ -651,7 +614,7 @@ fp_sum_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
     *out = u;
 }
 
-void
+inline void
 fp_difference_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
                           const fp_t *a2, const fp_t *b2)
 {
@@ -666,7 +629,7 @@ fp_difference_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
 
     def generate_binary_gcd_helpers(self) -> str:
         return """\
-static void
+static inline void
 fp_montylin(fp_t *out, const fp_t *u, const fp_t *v, uint64_t f, uint64_t g)
 {
     uint64_t sf = sign_word(f);
@@ -715,7 +678,7 @@ fp_montylin(fp_t *out, const fp_t *u, const fp_t *v, uint64_t f, uint64_t g)
     (void)carry;
 }
 
-static uint64_t
+static inline uint64_t
 fp_lindiv31abs(fp_t *out, const fp_t *a, const fp_t *b, uint64_t f, uint64_t g)
 {
     uint64_t sf = sign_word(f);
@@ -897,6 +860,15 @@ fp_legendre(const fp_t *x)
 }
 """
 
+    def generate_is_square(self) -> str:
+        return """\
+uint32_t
+fp_is_square(const fp_t *a) {
+    int32_t val = fp_legendre(a);
+    return -(uint32_t)(val & ~(val >> 31));
+}
+    """
+
     def generate_inv(self) -> str:
         return """\
 void
@@ -990,7 +962,8 @@ fp_inv(fp_t *out, const fp_t *x)
 """
 
     def generate_vartime_pow(self) -> str:
-        return r"""void
+        return """\
+void
 fp_pow_pubexp(fp_t *out, const fp_t *a, const uint64_t e[FP_LIMBS])
 {
     fp_t win[15];
@@ -1026,7 +999,7 @@ fp_pow_pubexp(fp_t *out, const fp_t *a, const uint64_t e[FP_LIMBS])
 """
 
     def generate_sqrt(self) -> str:
-        return r"""
+        return """\
 uint32_t
 fp_sqrt(fp_t *out, const fp_t *a)
 {
@@ -1040,7 +1013,7 @@ fp_sqrt(fp_t *out, const fp_t *a)
     for (size_t i = 0; i < FP_LIMBS; i++)
         y.limb[i] &= okmask;
 
-    uint8_t enc[FP_ENCODED_LENGTH];
+    uint8_t enc[FP_ENCODED_BYTES];
     fp_encode(enc, &y);
     fp_cond_neg(&y, (uint32_t)0 - (uint32_t)(enc[0] & 1u));
     *out = y;
@@ -1048,21 +1021,33 @@ fp_sqrt(fp_t *out, const fp_t *a)
 }
 """
 
-    def generate_batch_inversion(self) -> str:
-        return r"""void
-fp_batch_invert(fp_t *x, size_t len)
+    def generate_exp3div4(self) -> str:
+        return """\
+void
+fp_exp3div4(fp_t *out, const fp_t *a)
 {
+    fp_pow_pubexp(out, a, FP_P_MINUS_3_DIV_FOUR);
+}
+"""
+
+    def generate_batch_inversion(self) -> str:
+        return """\
+void
+fp_batch_invert(fp_t *x, size_t len) {
     size_t i = 0;
     while (i < len) {
         size_t blen = len - i;
         if (blen > 200)
             blen = 200;
+
         fp_t tt[200];
-        fp_t zero = { { 0 } };
+        fp_t zero;
+        fp_set_zero(&zero);
 
         tt[0] = x[i];
         uint32_t z0 = fp_equals(&tt[0], &zero);
         fp_select(&tt[0], &tt[0], &FP_ONE, z0);
+
         for (size_t j = 1; j < blen; j++) {
             tt[j] = x[i + j];
             uint32_t z = fp_equals(&tt[j], &zero);
@@ -1072,10 +1057,13 @@ fp_batch_invert(fp_t *x, size_t len)
 
         fp_t k;
         fp_inv(&k, &tt[blen - 1]);
+
+        // Backward pass
         for (size_t j = blen; j-- > 1;) {
             fp_t cur = x[i + j];
             uint32_t z = fp_equals(&cur, &zero);
             fp_select(&cur, &cur, &FP_ONE, z);
+
             fp_t prod;
             fp_mul(&prod, &k, &tt[j - 1]);
             fp_select(&x[i + j], &x[i + j], &prod, ~z);
@@ -1090,7 +1078,7 @@ fp_batch_invert(fp_t *x, size_t len)
     def generate_decode(self) -> str:
         return """\
 static void
-fp_decode_nocheck(fp_t *out, const uint8_t in[FP_ENCODED_LENGTH])
+fp_decode_nocheck(fp_t *out, const uint8_t in[FP_ENCODED_BYTES])
 {
     fp_t raw = { { 0 } };
 
@@ -1103,7 +1091,7 @@ fp_decode_nocheck(fp_t *out, const uint8_t in[FP_ENCODED_LENGTH])
 
     {
         const size_t last = FP_LIMBS - 1;
-        const size_t last_bytes = FP_ENCODED_LENGTH - 8 * (FP_LIMBS - 1);
+        const size_t last_bytes = FP_ENCODED_BYTES - 8 * (FP_LIMBS - 1);
         uint64_t w = 0;
         for (size_t j = 0; j < last_bytes; j++)
             w |= (uint64_t)in[8 * last + j] << (8 * j);
@@ -1114,7 +1102,7 @@ fp_decode_nocheck(fp_t *out, const uint8_t in[FP_ENCODED_LENGTH])
 }
 
 uint32_t
-fp_decode(fp_t *out, const uint8_t in[FP_ENCODED_LENGTH])
+fp_decode(fp_t *out, const uint8_t in[FP_ENCODED_BYTES])
 {
     fp_t raw;
     fp_decode_nocheck(&raw, in);
@@ -1141,7 +1129,7 @@ void
 fp_decode_reduce(fp_t *out, const uint8_t *in, size_t len)
 {
     fp_t t = { { 0 } };
-    uint8_t tmp[FP_ENCODED_LENGTH];
+    uint8_t tmp[FP_ENCODED_BYTES];
 
     if (len == 0) {
         *out = t;
@@ -1176,7 +1164,7 @@ fp_decode_reduce(fp_t *out, const uint8_t *in, size_t len)
     def generate_encode(self) -> str:
         return """\
 void
-fp_encode(uint8_t out[FP_ENCODED_LENGTH], const fp_t *x)
+fp_encode(uint8_t out[FP_ENCODED_BYTES], const fp_t *x)
 {
     fp_t t = *x;
     fp_internal_reduce(&t);
@@ -1190,7 +1178,7 @@ fp_encode(uint8_t out[FP_ENCODED_LENGTH], const fp_t *x)
 
     {
         const size_t last = FP_LIMBS - 1;
-        const size_t last_bytes = FP_ENCODED_LENGTH - 8 * (FP_LIMBS - 1);
+        const size_t last_bytes = FP_ENCODED_BYTES - 8 * (FP_LIMBS - 1);
         uint64_t w = t.limb[last];
 
         for (size_t j = 0; j < last_bytes; j++) {
@@ -1200,9 +1188,39 @@ fp_encode(uint8_t out[FP_ENCODED_LENGTH], const fp_t *x)
 }
 """
 
+    def generate_less_than(self) -> str:
+        return """\
+inline uint32_t
+fp_less_than(const fp_t *x1, const fp_t *x2)
+{
+    uint8_t buf1[FP_ENCODED_BYTES];
+    uint8_t buf2[FP_ENCODED_BYTES];
+
+    fp_encode(buf1, x1);
+    fp_encode(buf2, x2);
+
+    uint32_t result = 0;
+    uint32_t all_equal_so_far = UINT32_MAX;
+
+    for (size_t idx = FP_ENCODED_BYTES; idx-- > 0;) {
+        uint32_t less = ct_lt_u8(buf1[idx], buf2[idx]);
+        uint32_t equal = ct_eq_u8(buf1[idx], buf2[idx]);
+        result |= all_equal_so_far & less;
+        all_equal_so_far &= equal;
+    }
+
+    return result;
+}
+"""
+
+
     def generate_source(self) -> str:
         methods = [
             self.generate_constants(),
+            self.generate_set_zero(),
+            self.generate_set_one(),
+            self.generate_copy(),
+            self.generate_set_small(),
             self.generate_add(),
             self.generate_sub(),
             self.generate_neg(),
@@ -1211,6 +1229,7 @@ fp_encode(uint8_t out[FP_ENCODED_LENGTH], const fp_t *x)
             self.generate_equals(),
             self.generate_is_zero(),
             self.generate_ct_helpers(),
+            self.generate_less_than(),
             self.generate_reduce(),
             self.generate_mul_small(),
             self.generate_mul(),
@@ -1220,9 +1239,11 @@ fp_encode(uint8_t out[FP_ENCODED_LENGTH], const fp_t *x)
             self.generate_binary_gcd_helpers(),
             self.generate_inv(),
             self.generate_legendre(),
+            self.generate_is_square(),
             self.generate_batch_inversion(),
             self.generate_vartime_pow(),
             self.generate_sqrt(),
+            self.generate_exp3div4(),
             self.generate_decode(),
             self.generate_decode_reduce(),
             self.generate_encode(),
@@ -1232,7 +1253,7 @@ fp_encode(uint8_t out[FP_ENCODED_LENGTH], const fp_t *x)
     def generate(self, include_dir: Path, source_dir: Path):
         include_dir.mkdir(parents=True, exist_ok=True)
         source_dir.mkdir(parents=True, exist_ok=True)
-        (include_dir / "fp.h").write_text(self.generate_header())
+        (include_dir / "fp_defs.h").write_text(self.generate_defs_header())
         (source_dir / "fp.c").write_text(self.generate_source())
 
 
