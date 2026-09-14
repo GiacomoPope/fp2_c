@@ -494,7 +494,7 @@ fp_n_sqr(fp_t *out, const fp_t *a, uint32_t n)
                 "x1 = (hi << %d) | "
                 "(t.limb[FP_LIMBS - 1] >> %d);"
             ) % (96 - bl, bl - 32)
-        return r"""\
+        return r"""
 inline void
 fp_mul_small(fp_t *out, const fp_t *a, int32_t k)
 {
