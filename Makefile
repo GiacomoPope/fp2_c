@@ -1,10 +1,9 @@
-p248_5_VALUE  := "5 * 2**248 - 1"
+p308_633_VALUE := "633 * 2**308 - 1"
+p474_593_VALUE := "593 * 2**474 - 1"
+p628_317_VALUE := "317 * 2**628 - 1"
 p_coral_VALUE := "51 * 2**2026 - 1"
-# p308_633_VALUE := 0x278fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
-# p628_317_VALUE := 0x13cfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
-# PRIMES    := p248_5 p308_633 p628_317
-PRIMES        := p248_5 p_coral
+PRIMES        := p308_633 p474_593 p628_317 p_coral
 
 CC        := gcc
 CFLAGS    := -Wall -Wextra -std=c99 -O3
@@ -15,9 +14,10 @@ GEN_SCRIPT:= generator/gen_fp.py
 
 # Benchmark binary for the static Scott benchmark
 # TODO: generalise this to allow building multiple scott benchmarks
-BENCH_SCOTT_248_BIN := $(BUILD_DIR)/bench_scott_p248
+BENCH_SCOTT_308_BIN := $(BUILD_DIR)/bench_scott_p308
+BENCH_SCOTT_474_BIN := $(BUILD_DIR)/bench_scott_p474
+BENCH_SCOTT_628_BIN := $(BUILD_DIR)/bench_scott_p628
 BENCH_SCOTT_CORAL_BIN := $(BUILD_DIR)/bench_scott_coral
-
 
 
 # Lists of generated test and benchmark binaries
@@ -38,13 +38,17 @@ tests: $(TEST_BINS)
 		./$$test || exit 1; \
 	done
 
-bench: $(BENCH_BINS) $(BENCH_SCOTT_248_BIN) $(BENCH_SCOTT_CORAL_BIN)
+bench: $(BENCH_BINS) $(BENCH_SCOTT_308_BIN)  $(BENCH_SCOTT_474_BIN)  $(BENCH_SCOTT_628_BIN) $(BENCH_SCOTT_CORAL_BIN)
 	@for bench in $(BENCH_BINS); do \
 		echo "=== Running $$bench ==="; \
 		./$$bench || exit 1; \
 	done
-	@echo "=== Running $(BENCH_SCOTT_248_BIN) ==="
-	@./$(BENCH_SCOTT_248_BIN)
+	@echo "=== Running $(BENCH_SCOTT_308_BIN) ==="
+	@./$(BENCH_SCOTT_308_BIN)
+	@echo "=== Running $(BENCH_SCOTT_474_BIN) ==="
+	@./$(BENCH_SCOTT_474_BIN)
+	@echo "=== Running $(BENCH_SCOTT_628_BIN) ==="
+	@./$(BENCH_SCOTT_628_BIN)
 	@echo "=== Running $(BENCH_SCOTT_CORAL_BIN) ==="
 	@./$(BENCH_SCOTT_CORAL_BIN)
 
@@ -52,8 +56,14 @@ bench: $(BENCH_BINS) $(BENCH_SCOTT_248_BIN) $(BENCH_SCOTT_CORAL_BIN)
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
-$(BENCH_SCOTT_248_BIN): src/scott/p_248/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_248 src/fp_scott_bench.c bench/bench_scott.c -o $@
+$(BENCH_SCOTT_308_BIN): src/scott/p_308/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_308 src/fp_scott_bench.c bench/bench_scott.c -o $@
+
+$(BENCH_SCOTT_474_BIN): src/scott/p_474/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_474 src/fp_scott_bench.c bench/bench_scott.c -o $@
+
+$(BENCH_SCOTT_628_BIN): src/scott/p_628/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_628 src/fp_scott_bench.c bench/bench_scott.c -o $@
 
 $(BENCH_SCOTT_CORAL_BIN): src/scott/p_coral/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_coral src/fp_scott_bench.c bench/bench_scott.c -o $@

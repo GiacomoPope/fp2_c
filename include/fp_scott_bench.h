@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-typedef uint64_t scott_fp_t[5];
+typedef uint64_t scott_fp_t[Nlimbs];
 
 void scott_modint(int x, scott_fp_t a);
 void scott_modadd(const scott_fp_t a, const scott_fp_t b, scott_fp_t r);
