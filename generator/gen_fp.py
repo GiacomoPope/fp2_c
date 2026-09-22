@@ -61,6 +61,26 @@ class FieldGenerator:
     def array_literal(self, xs):
         return "{ " + ", ".join(self.c_u64(x) for x in xs) + " }"
 
+    def p0i_expr(self, var: str) -> str:
+        # p0i = -modulus[0]^-1 mod 2**64. Whenever modulus[0] is exactly
+        # 2**64 - 1 (true for every c*2**k - 1 prime we generate for, once
+        # k >= 64), its inverse mod 2**64 is itself, so p0i is always 1 and
+        # this multiply is a no-op we can just skip.
+        if self.p0i == 1:
+            return var
+        return f"{var} * FP_P0I"
+
+    def mul_add_by_constant(self, lo, hi, x, const, z1, z2=None):
+        # Multiplying by 2**64 - 1 is algebraically (x << 64) - x, which
+        # looks like it should avoid a real multiply instruction. Measured
+        # both ways: with -march=native available (mulx), the compiler's
+        # own canonicalization of a plain literal constant already beats a
+        # hand-written subtract-based version, so we stick with the literal
+        # form here rather than the mul_neg1_add helpers in util_64.h.
+        if z2 is None:
+            return f"mul_add(&{lo}, &{hi}, {x}, {self.c_u64(const)}, {z1});"
+        return f"mul_add2(&{lo}, &{hi}, {x}, {self.c_u64(const)}, {z1}, {z2});"
+
     def generate_defs_header(self) -> str:
         return f"""\
 #ifndef FP_DEFS_H
@@ -75,10 +95,12 @@ class FieldGenerator:
 """
 
     def generate_constants(self) -> str:
+        p0i_line = (
+            "" if self.p0i == 1 else f"static const uint64_t FP_P0I = {self.c_u64(self.p0i)};\n"
+        )
         return f"""\
 static const uint64_t FP_MODULUS[FP_LIMBS] = {self.array_literal(self.modulus)};
-static const uint64_t FP_P0I = {self.c_u64(self.p0i)};
-static const uint64_t FP_P1 = {self.c_u64(self.p1)};
+{p0i_line}static const uint64_t FP_P1 = {self.c_u64(self.p1)};
 static const uint64_t FP_P1DIV_M = {self.c_u64(self.p1div_m)};
 static const fp_t FP_ONE = {{ .limb = {self.array_literal(self.limbs(self.r, self.n))} }};
 static const fp_t FP_R2_ELEM = {{ .limb = {self.array_literal(self.limbs(self.r2, self.n))} }};
@@ -324,7 +346,7 @@ static inline void
 fp_internal_reduce(fp_t *x)
 {
     for (size_t i = 0; i < FP_LIMBS; i++) {
-        uint64_t f = x->limb[0] * FP_P0I;
+        uint64_t f = __P0I_EXPR__;
         uint64_t lo, cc;
 
         mul_add(&lo, &cc,
@@ -342,70 +364,73 @@ fp_internal_reduce(fp_t *x)
         x->limb[FP_LIMBS - 1] = cc;
     }
 }
-"""
+""".replace("__P0I_EXPR__", self.p0i_expr("x->limb[0]"))
 
     def generate_mul_small_n(self) -> str:
-            return """\
-    inline void
-    fp_mul(fp_t *out, const fp_t *a, const fp_t *b)
-    {
-        fp_t t = { { 0 } };
-        unsigned char cch = 0;
+        N = self.n
+        mod = self.modulus
 
-        for (size_t i = 0; i < FP_LIMBS; i++) {
-            uint64_t lo, cc1;
+        lines = [
+            "inline void",
+            "fp_mul(fp_t *out, const fp_t *a, const fp_t *b)",
+            "{",
+            "    fp_t t = { { 0 } };",
+            "    unsigned char cch = 0;",
+            "",
+        ]
 
-            mul_add(&lo, &cc1,
-                            b->limb[i], a->limb[0], t.limb[0]);
-            t.limb[0] = lo;
+        for i in range(N):
+            lines.append(f"    /* i = {i}: t += b[{i}] * a, folding in one Montgomery reduction limb */")
+            lines.append("    {")
+            lines.append("        uint64_t lo, hi, cc1, cc2;")
+            lines.append("")
+            lines.append(f"        mul_add(&lo, &cc1, b->limb[{i}], a->limb[0], t.limb[0]);")
+            lines.append("        t.limb[0] = lo;")
+            for j in range(1, N):
+                lines.append(
+                    f"        mul_add2(&lo, &hi, b->limb[{i}], a->limb[{j}], t.limb[{j}], cc1);"
+                )
+                lines.append(f"        t.limb[{j}] = lo;")
+                lines.append("        cc1 = hi;")
 
-            for (size_t j = 1; j < FP_LIMBS; j++) {
-                uint64_t hi;
-                mul_add2(&lo, &hi,
-                                b->limb[i], a->limb[j],
-                                t.limb[j], cc1);
-                t.limb[j] = lo;
-                cc1 = hi;
-            }
+            lines.append("")
+            lines.append(f"        uint64_t q = {self.p0i_expr('t.limb[0]')};")
+            lines.append("        " + self.mul_add_by_constant("lo", "cc2", "q", mod[0], "t.limb[0]"))
+            for j in range(1, N):
+                lines.append(
+                    "        " + self.mul_add_by_constant("lo", "hi", "q", mod[j], f"t.limb[{j}]", "cc2")
+                )
+                lines.append(f"        t.limb[{j - 1}] = lo;")
+                lines.append("        cc2 = hi;")
 
-            uint64_t q = t.limb[0] * FP_P0I;
+            lines.append("")
+            lines.append("        uint64_t top;")
+            lines.append("        unsigned char carry = addcarry_u64(0, cc1, cc2, &top);")
+            lines.append("        carry = addcarry_u64(carry, top, cch, &top);")
+            lines.append(f"        t.limb[{N - 1}] = top;")
+            lines.append("        cch = carry;")
+            lines.append("    }")
+            lines.append("")
 
-            uint64_t cc2;
-            mul_add(&lo, &cc2,
-                            q, FP_MODULUS[0], t.limb[0]);
+        lines.append("    unsigned char borrow = 0;")
+        for i in range(N):
+            lines.append(
+                f"    borrow = subborrow_u64(borrow, t.limb[{i}], {self.c_u64(mod[i])}, &t.limb[{i}]);"
+            )
 
-            for (size_t j = 1; j < FP_LIMBS; j++) {
-                uint64_t hi;
-                mul_add2(&lo, &hi,
-                                q, FP_MODULUS[j],
-                                t.limb[j], cc2);
-                t.limb[j - 1] = lo;
-                cc2 = hi;
-            }
+        lines.append("")
+        lines.append("    uint64_t mask = (uint64_t)cch - (uint64_t)borrow;")
+        lines.append("    unsigned char carry = 0;")
+        for i in range(N):
+            lines.append(
+                f"    carry = addcarry_u64(carry, t.limb[{i}], {self.c_u64(mod[i])} & mask, &t.limb[{i}]);"
+            )
 
-            uint64_t top;
-            unsigned char carry = addcarry_u64(0, cc1, cc2, &top);
-            carry = addcarry_u64(carry, top, cch, &top);
-            t.limb[FP_LIMBS - 1] = top;
-            cch = carry;
-        }
+        lines.append("")
+        lines.append("    *out = t;")
+        lines.append("}")
 
-        unsigned char borrow = 0;
-        for (size_t i = 0; i < FP_LIMBS; i++) {
-            borrow = subborrow_u64(borrow, t.limb[i],
-                                        FP_MODULUS[i], &t.limb[i]);
-        }
-
-        uint64_t mask = (uint64_t)cch - (uint64_t)borrow;
-        unsigned char carry = 0;
-        for (size_t i = 0; i < FP_LIMBS; i++) {
-            carry = addcarry_u64(carry, t.limb[i],
-                                        FP_MODULUS[i] & mask, &t.limb[i]);
-        }
-
-        *out = t;
-    }
-    """
+        return "\n".join(lines) + "\n"
 
     def generate_mul_large_n(self) -> str:
         return """\
@@ -423,7 +448,7 @@ fp_mul(fp_t *out, const fp_t *a, const fp_t *b)
         mul_add(&lo, &cc1,
                         f, a->limb[0], t.limb[0]);
 
-        uint64_t g = lo * FP_P0I;
+        uint64_t g = __P0I_EXPR__;
         uint64_t cc2;
 
         mul_add(&lo, &cc2,
@@ -468,203 +493,90 @@ fp_mul(fp_t *out, const fp_t *a, const fp_t *b)
 
     *out = t;
 }
-"""
+""".replace("__P0I_EXPR__", self.p0i_expr("lo"))
 
-    # def generate_mul_small_n(self) -> str:
-    #     N = self.n
+    @property
+    def has_single_limb_p1(self) -> bool:
+        return self.n >= 2 and all(m == MASK64 for m in self.modulus[:-1])
 
-    #     lines = [
-    #         "inline void",
-    #         "fp_mul(fp_t *out, const fp_t *a, const fp_t *b)",
-    #         "{",
-    #         "    fp_t t = { { 0 } };",
-    #         "    unsigned char cch = 0;",
-    #         "    uint64_t lo, hi;",
-    #         "",
-    #     ]
+    def generate_mul_p1_rotate(self) -> str:
+        N = self.n
+        mod = self.modulus
+        p1_top = mod[-1] + 1
 
-    #     for i in range(N):
-    #         lines.append(f"    /* i = {i} */")
-    #         lines.append("    {")
-    #         lines.append("        uint64_t cc1;")
-    #         lines.append(
-    #             f"        mul_add(&lo, &cc1, b->limb[{i}], a->limb[0], t.limb[0]);"
-    #         )
-    #         lines.append("        t.limb[0] = lo;")
+        var_names = [f"t{k}" for k in range(N)]
+        lines = [
+            "void",
+            "fp_mul(fp_t *out, const fp_t *a, const fp_t *b)",
+            "{",
+            "    uint64_t " + ", ".join(f"{v} = 0" for v in var_names) + ";",
+            "    uint64_t cch = 0;",
+            "",
+        ]
 
-    #         for j in range(1, N):
-    #             lines.append(
-    #                 f"        mul_add2(&lo, &hi, b->limb[{i}], a->limb[{j}], "
-    #                 f"t.limb[{j}], cc1);"
-    #             )
-    #             lines.append(f"        t.limb[{j}] = lo;")
-    #             lines.append("        cc1 = hi;")
+        # phys[j]: the C variable currently standing in for logical limb j.
+        phys = list(var_names)
+        for i in range(N):
+            lines.append(f"    /* i = {i}: fold in b[{i}]*a, then one p+1-based reduction limb */")
+            lines.append("    {")
+            lines.append("        uint64_t lo, hi, cc1;")
+            lines.append("")
+            lines.append(f"        mul_add(&lo, &cc1, b->limb[{i}], a->limb[0], {phys[0]});")
+            lines.append(f"        {phys[0]} = lo;")
+            for j in range(1, N):
+                lines.append(
+                    f"        mul_add2(&lo, &hi, b->limb[{i}], a->limb[{j}], {phys[j]}, cc1);"
+                )
+                lines.append(f"        {phys[j]} = lo;")
+                lines.append("        cc1 = hi;")
 
-    #         lines.append("")
-    #         lines.append("        uint64_t q = t.limb[0] * FP_P0I;")
-    #         lines.append("        uint64_t cc2;")
-    #         lines.append(
-    #             "        mul_add(&lo, &cc2, q, FP_MODULUS[0], t.limb[0]);"
-    #         )
+            lines.append("")
+            q_var, top_var = phys[0], phys[-1]
+            lines.append(f"        uint64_t q = {self.p0i_expr(q_var)};")
+            lines.append("        uint64_t prod_lo, prod_hi;")
+            lines.append(f"        mul_u64(&prod_lo, &prod_hi, q, {self.c_u64(p1_top)});")
+            lines.append(
+                f"        unsigned char carry_mid = addcarry_u64(0, {top_var}, prod_lo, &{top_var});"
+            )
+            lines.append("        uint64_t cc1_new;")
+            lines.append("        unsigned char cA = addcarry_u64(0, cc1, prod_hi, &cc1_new);")
+            lines.append("        unsigned char cB = addcarry_u64(0, cc1_new, carry_mid, &cc1_new);")
+            lines.append("        unsigned char cc2 = (unsigned char)(cA + cB);")
+            lines.append("        uint64_t top;")
+            lines.append("        unsigned char cC = addcarry_u64(0, cc1_new, cch, &top);")
+            lines.append("        cch = (uint64_t)cC + cc2;")
+            lines.append(f"        {q_var} = top;")
+            lines.append("    }")
+            lines.append("")
 
-    #         for j in range(1, N):
-    #             lines.append(
-    #                 f"        mul_add2(&lo, &hi, q, FP_MODULUS[{j}], "
-    #                 f"t.limb[{j}], cc2);"
-    #             )
-    #             lines.append(f"        t.limb[{j - 1}] = lo;")
-    #             lines.append("        cc2 = hi;")
+            phys = phys[1:] + [phys[0]]
 
-    #         lines.append("")
-    #         lines.append("        uint64_t top;")
-    #         lines.append("        unsigned char carry = addcarry_u64(0, cc1, cc2, &top);")
-    #         lines.append("        carry = addcarry_u64(carry, top, cch, &top);")
-    #         lines.append(f"        t.limb[{N - 1}] = top;")
-    #         lines.append("        cch = carry;")
-    #         lines.append("    }")
-    #         lines.append("")
+        assert phys == var_names, "rotation must cycle back after FP_LIMBS steps"
 
-    #     lines.append("    unsigned char borrow = 0;")
-    #     for i in range(N):
-    #         lines.append(
-    #             f"    borrow = subborrow_u64(borrow, t.limb[{i}], "
-    #             f"FP_MODULUS[{i}], &t.limb[{i}]);"
-    #         )
+        lines.append("    unsigned char borrow = 0;")
+        for i in range(N):
+            lines.append(
+                f"    borrow = subborrow_u64(borrow, {var_names[i]}, {self.c_u64(mod[i])}, &{var_names[i]});"
+            )
+        lines.append("    uint64_t mask = cch - (uint64_t)borrow;")
+        lines.append("    unsigned char carry = 0;")
+        for i in range(N):
+            lines.append(
+                f"    carry = addcarry_u64(carry, {var_names[i]}, {self.c_u64(mod[i])} & mask, &{var_names[i]});"
+            )
+        lines.append("    (void)carry;")
+        lines.append("")
+        lines.append("    fp_t r = { { " + ", ".join(var_names) + " } };")
+        lines.append("    *out = r;")
+        lines.append("}")
 
-    #     lines.append("")
-    #     lines.append("    uint64_t mask = (uint64_t)cch - (uint64_t)borrow;")
-    #     lines.append("    unsigned char carry = 0;")
-    #     for i in range(N):
-    #         lines.append(
-    #             f"    carry = addcarry_u64(carry, t.limb[{i}], "
-    #             f"FP_MODULUS[{i}] & mask, &t.limb[{i}]);"
-    #         )
-
-    #     lines.append("")
-    #     lines.append("    *out = t;")
-    #     lines.append("}\n")
-
-    #     return "\n".join(lines)
-
-    # def generate_mul_large_n(self) -> str:
-    #     N = self.n
-
-    #     lines = [
-    #         "inline void",
-    #         "fp_mul(fp_t *out, const fp_t *a, const fp_t *b)",
-    #         "{",
-    #         "    fp_t t = { { 0 } };",
-    #         "    unsigned char cch = 0;",
-    #         "    uint64_t lo, hi;",
-    #         "",
-    #     ]
-
-    #     for i in range(N):
-    #         lines.append(f"    /* i = {i} */")
-    #         lines.append("    {")
-
-    #         lines.append(f"        uint64_t f = b->limb[{i}];")
-    #         lines.append("        uint64_t cc1;")
-    #         lines.append("        uint64_t cc2;")
-    #         lines.append("        uint64_t d;")
-
-    #         # First multiplication:
-    #         # lo = f * a[0] + t[0]
-    #         lines.append(
-    #             "        mul_add(&lo, &cc1, "
-    #             "f, a->limb[0], t.limb[0]);"
-    #         )
-
-    #         # Montgomery factor.
-    #         lines.append(
-    #             "        uint64_t g = lo * FP_P0I;"
-    #         )
-
-    #         # First reduction limb:
-    #         # lo = g * p[0] + lo
-    #         lines.append(
-    #             "        mul_add(&lo, &cc2, "
-    #             "g, FP_MODULUS[0], lo);"
-    #         )
-
-    #         for j in range(1, N):
-    #             # Multiplication.
-    #             lines.append(
-    #                 f"        mul_add2(&d, &hi, "
-    #                 f"f, a->limb[{j}], t.limb[{j}], cc1);"
-    #             )
-    #             lines.append("        cc1 = hi;")
-
-    #             # Montgomery reduction.
-    #             lines.append(
-    #                 f"        mul_add2(&d, &hi, "
-    #                 f"g, FP_MODULUS[{j}], d, cc2);"
-    #             )
-    #             lines.append("        cc2 = hi;")
-
-    #             # Shift result down one limb.
-    #             lines.append(
-    #                 f"        t.limb[{j - 1}] = d;"
-    #             )
-
-    #         lines.append("")
-
-    #         # Carry into the top limb.
-    #         lines.append("        uint64_t top;")
-    #         lines.append(
-    #             "        unsigned char carry = "
-    #             "addcarry_u64(0, cc1, cc2, &top);"
-    #         )
-    #         lines.append(
-    #             "        carry = "
-    #             "addcarry_u64(carry, top, cch, &top);"
-    #         )
-    #         lines.append(
-    #             f"        t.limb[{N - 1}] = top;"
-    #         )
-    #         lines.append("        cch = carry;")
-
-    #         lines.append("    }")
-    #         lines.append("")
-
-    #     # Final reduction.
-    #     lines.append("    unsigned char borrow = 0;")
-
-    #     for i in range(N):
-    #         lines.append(
-    #             f"    borrow = subborrow_u64("
-    #             f"borrow, t.limb[{i}], "
-    #             f"FP_MODULUS[{i}], &t.limb[{i}]);"
-    #         )
-
-    #     lines.append("")
-
-    #     lines.append(
-    #         "    uint64_t mask = "
-    #         "(uint64_t)cch - (uint64_t)borrow;"
-    #     )
-
-    #     lines.append("    unsigned char carry = 0;")
-
-    #     for i in range(N):
-    #         lines.append(
-    #             f"    carry = addcarry_u64("
-    #             f"carry, t.limb[{i}], "
-    #             f"FP_MODULUS[{i}] & mask, "
-    #             f"&t.limb[{i}]);"
-    #         )
-
-    #     lines.extend([
-    #         "",
-    #         "    *out = t;",
-    #         "}\n",
-    #     ])
-
-    #     return "\n".join(lines)
+        return "\n".join(lines) + "\n"
 
     def generate_mul(self) -> str:
         if self.n >= 15:
             return self.generate_mul_large_n()
+        if self.has_single_limb_p1:
+            return self.generate_mul_p1_rotate()
         return self.generate_mul_small_n()
 
     def generate_sqr(self) -> str:
@@ -729,76 +641,6 @@ fp_sqr(fp_t *out, const fp_t *a)
     fp_add(out, &lo, &hi);
 }
 """
-
-    # def generate_sqr(self) -> str:
-    #     N = self.n
-
-    #     lines = [
-    #         "inline void",
-    #         "fp_sqr(fp_t *out, const fp_t *a)",
-    #         "{",
-    #         "    uint64_t t[FP_LIMBS * 2] = { 0 };",
-    #         "    uint64_t f, lo, hi, w, ee, cc;",
-    #         "",
-    #         "    /* --- upper triangle, row 0 --- */",
-    #         "    f = a->limb[0];",
-    #         "    mul_u64(&t[1], &cc, f, a->limb[1]);",
-    #     ]
-
-    #     for j in range(2, N):
-    #         lines.append(f"    mul_add(&t[{j}], &hi, f, a->limb[{j}], cc);")
-    #         lines.append("    cc = hi;")
-    #     lines.append(f"    t[{N}] = cc;")
-    #     lines.append("")
-
-    #     lines.append("    /* --- upper triangle, remaining rows --- */")
-    #     for i in range(1, N - 1):
-    #         lines.append(f"    /* i = {i} */")
-    #         lines.append(f"    f = a->limb[{i}];")
-    #         lines.append(
-    #             f"    mul_add(&t[{2 * i + 1}], &cc, f, a->limb[{i + 1}], t[{2 * i + 1}]);"
-    #         )
-    #         for j in range(i + 2, N):
-    #             lines.append(
-    #                 f"    mul_add2(&t[{i + j}], &hi, f, a->limb[{j}], t[{i + j}], cc);"
-    #             )
-    #             lines.append("    cc = hi;")
-    #         lines.append(f"    t[{i + N}] = cc;")
-    #     lines.append("")
-
-    #     lines.append("    /* --- double the cross-product terms --- */")
-    #     lines.append("    cc = 0;")
-    #     for i in range(1, 2 * N - 1):
-    #         lines.append(f"    w = t[{i}];")
-    #         lines.append("    hi = w >> 63;")
-    #         lines.append(f"    t[{i}] = (w << 1) | cc;")
-    #         lines.append("    cc = hi;")
-    #     lines.append(f"    t[{2 * N - 1}] = cc;")
-    #     lines.append("")
-
-    #     lines.append("    /* --- add in the diagonal squares --- */")
-    #     lines.append("    cc = 0;")
-    #     for i in range(N):
-    #         lines.append(f"    mul_u64(&lo, &hi, a->limb[{i}], a->limb[{i}]);")
-    #         lines.append(
-    #             f"    ee = addcarry_u64((unsigned char)cc, lo, t[{2 * i}], &t[{2 * i}]);"
-    #         )
-    #         lines.append(
-    #             f"    ee = addcarry_u64(ee, hi, t[{2 * i + 1}], &t[{2 * i + 1}]);"
-    #         )
-    #         lines.append("    cc = ee;")
-    #     lines.append("")
-
-    #     lines.append("    fp_t fp_lo = { { 0 } };")
-    #     lines.append("    fp_t fp_hi = { { 0 } };")
-    #     for i in range(N):
-    #         lines.append(f"    fp_lo.limb[{i}] = t[{i}];")
-    #         lines.append(f"    fp_hi.limb[{i}] = t[{i + N}];")
-    #     lines.append("    fp_internal_reduce(&fp_lo);")
-    #     lines.append("    fp_add(out, &fp_lo, &fp_hi);")
-    #     lines.append("}")
-
-    #     return "\n".join(lines)
 
     def generate_n_sqr(self) -> str:
         return r"""\
@@ -892,7 +734,7 @@ fp_mul_small(fp_t *out, const fp_t *a, int32_t k)
 }
 """.replace("__X1_EXPRESSION__", x1_expr)
 
-    def generate_sum_of_products(self) -> str:
+    def generate_sum_of_products_large_n(self) -> str:
         return """\
 inline void
 fp_sum_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
@@ -920,7 +762,7 @@ fp_sum_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
             cc2 = hi;
         }
 
-        uint64_t q = u.limb[0] * FP_P0I;
+        uint64_t q = __P0I_EXPR__;
         mul_add(&lo, &cc3, q, FP_MODULUS[0], u.limb[0]);
         for (size_t k = 1; k < FP_LIMBS; k++) {
             uint64_t hi;
@@ -946,97 +788,174 @@ fp_sum_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
     (void)carry;
     *out = u;
 }
-"""
+""".replace("__P0I_EXPR__", self.p0i_expr("u.limb[0]"))
 
-    # def generate_sum_of_products(self) -> str:
-    #     N = self.n
+    def generate_sum_of_products_small_n(self) -> str:
+        N = self.n
+        mod = self.modulus
 
-    #     lines = [
-    #         "inline void",
-    #         "fp_sum_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,",
-    #         "                   const fp_t *a2, const fp_t *b2)",
-    #         "{",
-    #         "    fp_t u = { { 0 } };",
-    #         "    unsigned char cch = 0;",
-    #         "    uint64_t lo, hi;",
-    #         "",
-    #     ]
+        lines = [
+            "inline void",
+            "fp_sum_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,",
+            "                   const fp_t *a2, const fp_t *b2)",
+            "{",
+            "    fp_t u = { { 0 } };",
+            "    unsigned char cch = 0;",
+            "",
+        ]
 
-    #     for j in range(N):
-    #         lines.append(f"    /* --- j = {j} --- */")
-    #         lines.append("    {")
-    #         lines.append("        uint64_t cc1, cc2, cc3;")
-    #         lines.append(
-    #             f"        mul_add(&lo, &cc1, a1->limb[{j}], b1->limb[0], u.limb[0]);"
-    #         )
-    #         lines.append("        u.limb[0] = lo;")
-    #         for k in range(1, N):
-    #             lines.append(
-    #                 f"        mul_add2(&lo, &hi, a1->limb[{j}], b1->limb[{k}], "
-    #                 f"u.limb[{k}], cc1);"
-    #             )
-    #             lines.append(f"        u.limb[{k}] = lo;")
-    #             lines.append("        cc1 = hi;")
+        for j in range(N):
+            lines.append(f"    /* j = {j}: u += a1[{j}]*b1 + a2[{j}]*b2, folding in one reduction limb */")
+            lines.append("    {")
+            lines.append("        uint64_t lo, hi, cc1, cc2, cc3;")
+            lines.append("")
+            lines.append(f"        mul_add(&lo, &cc1, a1->limb[{j}], b1->limb[0], u.limb[0]);")
+            lines.append("        u.limb[0] = lo;")
+            for k in range(1, N):
+                lines.append(
+                    f"        mul_add2(&lo, &hi, a1->limb[{j}], b1->limb[{k}], u.limb[{k}], cc1);"
+                )
+                lines.append(f"        u.limb[{k}] = lo;")
+                lines.append("        cc1 = hi;")
 
-    #         lines.append(
-    #             f"        mul_add(&lo, &cc2, a2->limb[{j}], b2->limb[0], u.limb[0]);"
-    #         )
-    #         lines.append("        u.limb[0] = lo;")
-    #         for k in range(1, N):
-    #             lines.append(
-    #                 f"        mul_add2(&lo, &hi, a2->limb[{j}], b2->limb[{k}], "
-    #                 f"u.limb[{k}], cc2);"
-    #             )
-    #             lines.append(f"        u.limb[{k}] = lo;")
-    #             lines.append("        cc2 = hi;")
+            lines.append("")
+            lines.append(f"        mul_add(&lo, &cc2, a2->limb[{j}], b2->limb[0], u.limb[0]);")
+            lines.append("        u.limb[0] = lo;")
+            for k in range(1, N):
+                lines.append(
+                    f"        mul_add2(&lo, &hi, a2->limb[{j}], b2->limb[{k}], u.limb[{k}], cc2);"
+                )
+                lines.append(f"        u.limb[{k}] = lo;")
+                lines.append("        cc2 = hi;")
 
-    #         lines.append("")
-    #         lines.append("        uint64_t q = u.limb[0] * FP_P0I;")
-    #         lines.append(
-    #             "        mul_add(&lo, &cc3, q, FP_MODULUS[0], u.limb[0]);"
-    #         )
-    #         for k in range(1, N):
-    #             lines.append(
-    #                 f"        mul_add2(&lo, &hi, q, FP_MODULUS[{k}], "
-    #                 f"u.limb[{k}], cc3);"
-    #             )
-    #             lines.append(f"        u.limb[{k - 1}] = lo;")
-    #             lines.append("        cc3 = hi;")
+            lines.append("")
+            lines.append(f"        uint64_t q = {self.p0i_expr('u.limb[0]')};")
+            lines.append("        " + self.mul_add_by_constant("lo", "cc3", "q", mod[0], "u.limb[0]"))
+            for k in range(1, N):
+                lines.append(
+                    "        " + self.mul_add_by_constant("lo", "hi", "q", mod[k], f"u.limb[{k}]", "cc3")
+                )
+                lines.append(f"        u.limb[{k - 1}] = lo;")
+                lines.append("        cc3 = hi;")
 
-    #         lines.append("")
-    #         lines.append("        uint64_t top;")
-    #         lines.append(
-    #             "        unsigned char c1 = addcarry_u64(cch, cc1, cc2, &top);"
-    #         )
-    #         lines.append(
-    #             "        unsigned char c2 = addcarry_u64(0, top, cc3, &top);"
-    #         )
-    #         lines.append("        cch = (unsigned char)(c1 + c2);")
-    #         lines.append(f"        u.limb[{N - 1}] = top;")
-    #         lines.append("    }")
-    #         lines.append("")
+            lines.append("")
+            lines.append("        uint64_t top;")
+            lines.append("        unsigned char c1 = addcarry_u64(cch, cc1, cc2, &top);")
+            lines.append("        unsigned char c2 = addcarry_u64(0, top, cc3, &top);")
+            lines.append("        cch = (unsigned char)(c1 + c2);")
+            lines.append(f"        u.limb[{N - 1}] = top;")
+            lines.append("    }")
 
-    #     lines.append("    unsigned char borrow = 0;")
-    #     for i in range(N):
-    #         lines.append(
-    #             f"    borrow = subborrow_u64(borrow, u.limb[{i}], "
-    #             f"FP_MODULUS[{i}], &u.limb[{i}]);"
-    #         )
-    #     lines.append("")
-    #     lines.append("    uint64_t mask = (uint64_t)cch - (uint64_t)borrow;")
-    #     lines.append("    unsigned char carry = 0;")
-    #     for i in range(N):
-    #         lines.append(
-    #             f"    carry = addcarry_u64(carry, u.limb[{i}], "
-    #             f"FP_MODULUS[{i}] & mask, &u.limb[{i}]);"
-    #         )
-    #     lines.append("    (void)carry;")
-    #     lines.append("    *out = u;")
-    #     lines.append("}")
+        lines.append("")
+        lines.append("    unsigned char borrow = 0;")
+        for i in range(N):
+            lines.append(
+                f"    borrow = subborrow_u64(borrow, u.limb[{i}], {self.c_u64(mod[i])}, &u.limb[{i}]);"
+            )
+        lines.append("    uint64_t mask = (uint64_t)cch - (uint64_t)borrow;")
+        lines.append("    unsigned char carry = 0;")
+        for i in range(N):
+            lines.append(
+                f"    carry = addcarry_u64(carry, u.limb[{i}], {self.c_u64(mod[i])} & mask, &u.limb[{i}]);"
+            )
+        lines.append("    (void)carry;")
+        lines.append("    *out = u;")
+        lines.append("}")
 
-    #     return "\n".join(lines)
+        return "\n".join(lines) + "\n"
 
-    def generate_difference_of_products(self) -> str:
+    def generate_sum_of_products_p1_rotate(self) -> str:
+        N = self.n
+        mod = self.modulus
+        p1_top = mod[-1] + 1
+
+        var_names = [f"u{k}" for k in range(N)]
+        lines = [
+            "inline void",
+            "fp_sum_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,",
+            "                   const fp_t *a2, const fp_t *b2)",
+            "{",
+            "    uint64_t " + ", ".join(f"{v} = 0" for v in var_names) + ";",
+            "    uint64_t cch = 0;",
+            "",
+        ]
+
+        phys = list(var_names)
+        for j in range(N):
+            lines.append(f"    /* j = {j}: u += a1[{j}]*b1 + a2[{j}]*b2, then one p+1-based reduction limb */")
+            lines.append("    {")
+            lines.append("        uint64_t lo, hi, cc1, cc2;")
+            lines.append("")
+            lines.append(f"        mul_add(&lo, &cc1, a1->limb[{j}], b1->limb[0], {phys[0]});")
+            lines.append(f"        {phys[0]} = lo;")
+            for k in range(1, N):
+                lines.append(
+                    f"        mul_add2(&lo, &hi, a1->limb[{j}], b1->limb[{k}], {phys[k]}, cc1);"
+                )
+                lines.append(f"        {phys[k]} = lo;")
+                lines.append("        cc1 = hi;")
+
+            lines.append("")
+            lines.append(f"        mul_add(&lo, &cc2, a2->limb[{j}], b2->limb[0], {phys[0]});")
+            lines.append(f"        {phys[0]} = lo;")
+            for k in range(1, N):
+                lines.append(
+                    f"        mul_add2(&lo, &hi, a2->limb[{j}], b2->limb[{k}], {phys[k]}, cc2);"
+                )
+                lines.append(f"        {phys[k]} = lo;")
+                lines.append("        cc2 = hi;")
+
+            lines.append("")
+            q_var, top_var = phys[0], phys[-1]
+            lines.append(f"        uint64_t q = {self.p0i_expr(q_var)};")
+            lines.append("        uint64_t prod_lo, prod_hi;")
+            lines.append(f"        mul_u64(&prod_lo, &prod_hi, q, {self.c_u64(p1_top)});")
+            lines.append(
+                f"        unsigned char carry_mid = addcarry_u64(0, {top_var}, prod_lo, &{top_var});"
+            )
+            lines.append("        uint64_t cc_combined;")
+            lines.append("        unsigned char cA = addcarry_u64(0, cc1, cc2, &cc_combined);")
+            lines.append("        unsigned char cB = addcarry_u64(0, cc_combined, prod_hi, &cc_combined);")
+            lines.append("        unsigned char cD = addcarry_u64(0, cc_combined, carry_mid, &cc_combined);")
+            lines.append("        unsigned char cc2b = (unsigned char)(cA + cB + cD);")
+            lines.append("        uint64_t top;")
+            lines.append("        unsigned char cC = addcarry_u64(0, cc_combined, cch, &top);")
+            lines.append("        cch = (uint64_t)cC + cc2b;")
+            lines.append(f"        {q_var} = top;")
+            lines.append("    }")
+            lines.append("")
+
+            phys = phys[1:] + [phys[0]]
+
+        assert phys == var_names, "rotation must cycle back after FP_LIMBS steps"
+
+        lines.append("    unsigned char borrow = 0;")
+        for i in range(N):
+            lines.append(
+                f"    borrow = subborrow_u64(borrow, {var_names[i]}, {self.c_u64(mod[i])}, &{var_names[i]});"
+            )
+        lines.append("    uint64_t mask = cch - (uint64_t)borrow;")
+        lines.append("    unsigned char carry = 0;")
+        for i in range(N):
+            lines.append(
+                f"    carry = addcarry_u64(carry, {var_names[i]}, {self.c_u64(mod[i])} & mask, &{var_names[i]});"
+            )
+        lines.append("    (void)carry;")
+        lines.append("")
+        lines.append("    fp_t r = { { " + ", ".join(var_names) + " } };")
+        lines.append("    *out = r;")
+        lines.append("}")
+
+        return "\n".join(lines) + "\n"
+
+    def generate_sum_of_products(self) -> str:
+        if self.n >= 15:
+            return self.generate_sum_of_products_large_n()
+        if self.has_single_limb_p1:
+            return self.generate_sum_of_products_p1_rotate()
+        return self.generate_sum_of_products_small_n()
+
+    def generate_difference_of_products_large_n(self) -> str:
         return """\
 inline void
 fp_difference_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
@@ -1051,7 +970,32 @@ fp_difference_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,
 }
 """
 
+    def generate_difference_of_products_small_n(self) -> str:
+        N = self.n
+        mod = self.modulus
 
+        lines = [
+            "inline void",
+            "fp_difference_of_products(fp_t *out, const fp_t *a1, const fp_t *b1,",
+            "                          const fp_t *a2, const fp_t *b2)",
+            "{",
+            "    fp_t nb2 = { { 0 } };",
+            "    unsigned char borrow = 0;",
+        ]
+        for i in range(N):
+            lines.append(
+                f"    borrow = subborrow_u64(borrow, {self.c_u64(mod[i])}, b2->limb[{i}], &nb2.limb[{i}]);"
+            )
+        lines.append("    (void)borrow;")
+        lines.append("    fp_sum_of_products(out, a1, b1, a2, &nb2);")
+        lines.append("}")
+
+        return "\n".join(lines) + "\n"
+
+    def generate_difference_of_products(self) -> str:
+        if self.n >= 15:
+            return self.generate_difference_of_products_large_n()
+        return self.generate_difference_of_products_small_n()
 
 
     def generate_binary_gcd_helpers(self) -> str:
@@ -1082,7 +1026,7 @@ fp_montylin(fp_t *out, const fp_t *u, const fp_t *v, uint64_t f, uint64_t g)
     }
     uint64_t up = cc;
 
-    uint64_t q = out->limb[0] * FP_P0I;
+    uint64_t q = __P0I_EXPR__;
     uint64_t cc2;
     mul_add(&lo, &cc2, q, FP_MODULUS[0], out->limb[0]);
     for (size_t i = 1; i < FP_LIMBS; i++) {
@@ -1137,7 +1081,7 @@ fp_lindiv31abs(fp_t *out, const fp_t *a, const fp_t *b, uint64_t f, uint64_t g)
     (void)borrow;
     return w;
 }
-"""
+""".replace("__P0I_EXPR__", self.p0i_expr("out->limb[0]"))
 
     def generate_legendre(self) -> str:
         return """\
