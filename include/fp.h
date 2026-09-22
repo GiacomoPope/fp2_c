@@ -34,6 +34,10 @@ void fp_add(fp_t *r, const fp_t *a, const fp_t *b);
 /* r = a - b in GF(p). Aliasing is allowed. */
 void fp_sub(fp_t *r, const fp_t *a, const fp_t *b);
 
+/* r1 = a + b, r2 = a - b in GF(p), sharing a single read of a and b.
+   Aliasing is allowed. */
+void fp_hadamard(fp_t *r1, fp_t *r2, const fp_t *a, const fp_t *b);
+
 /* r = -a in GF(p). Aliasing is allowed. */
 void fp_neg(fp_t *r, const fp_t *a);
 

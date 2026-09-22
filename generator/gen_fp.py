@@ -203,6 +203,44 @@ fp_sub(fp_t *r, const fp_t *a, const fp_t *b)
 }
 """
 
+    def generate_hadamard(self) -> str:
+        return """\
+inline void
+fp_hadamard(fp_t *r1, fp_t *r2, const fp_t *a, const fp_t *b)
+{
+    fp_t sum, diff;
+    unsigned char c1 = 0;
+    unsigned char c2 = 0;
+
+    /* a and b are each read once, feeding two independent carry chains. */
+    for (size_t i = 0; i < FP_LIMBS; i++) {
+        c1 = addcarry_u64(c1, a->limb[i], b->limb[i], &sum.limb[i]);
+        c2 = subborrow_u64(c2, a->limb[i], b->limb[i], &diff.limb[i]);
+    }
+
+    unsigned char cs = 0;
+    for (size_t i = 0; i < FP_LIMBS; i++) {
+        cs = subborrow_u64(cs, sum.limb[i], FP_MODULUS[i], &sum.limb[i]);
+    }
+    uint64_t mask_s = (uint64_t)c1 - (uint64_t)cs;
+    unsigned char cas = 0;
+    for (size_t i = 0; i < FP_LIMBS; i++) {
+        cas = addcarry_u64(cas, sum.limb[i], FP_MODULUS[i] & mask_s, &sum.limb[i]);
+    }
+    (void)cas;
+
+    uint64_t mask_d = (uint64_t)0 - (uint64_t)c2;
+    unsigned char cad = 0;
+    for (size_t i = 0; i < FP_LIMBS; i++) {
+        cad = addcarry_u64(cad, diff.limb[i], FP_MODULUS[i] & mask_d, &diff.limb[i]);
+    }
+    (void)cad;
+
+    *r1 = sum;
+    *r2 = diff;
+}
+"""
+
     def generate_neg(self) -> str:
         return """\
 inline void
@@ -579,11 +617,9 @@ fp_mul(fp_t *out, const fp_t *a, const fp_t *b)
             return self.generate_mul_p1_rotate()
         return self.generate_mul_small_n()
 
-    def generate_sqr(self) -> str:
-        return """\
-inline void
-fp_sqr(fp_t *out, const fp_t *a)
-{
+    # Cross-term/doubling/diagonal product computation shared by both sqr
+    # variants below: builds the full 2*FP_LIMBS-limb product a^2 into t[].
+    _SQR_PRODUCT_BODY = """\
     uint64_t t[FP_LIMBS * 2] = { 0 };
 
     uint64_t f = a->limb[0];
@@ -630,7 +666,17 @@ fp_sqr(fp_t *out, const fp_t *a)
         ee = addcarry_u64(ee, hi, t[2 * i + 1], &t[2 * i + 1]);
         cc = ee;
     }
+"""
 
+    def generate_sqr_generic(self) -> str:
+        return (
+            """\
+inline void
+fp_sqr(fp_t *out, const fp_t *a)
+{
+"""
+            + self._SQR_PRODUCT_BODY
+            + """
     fp_t lo = { { 0 } };
     fp_t hi = { { 0 } };
     for (size_t i = 0; i < FP_LIMBS; i++) {
@@ -641,6 +687,66 @@ fp_sqr(fp_t *out, const fp_t *a)
     fp_add(out, &lo, &hi);
 }
 """
+        )
+
+    def generate_sqr_p1_fused(self) -> str:
+        # Same product computation as generate_sqr_generic, but the
+        # reduction exploits p + 1 = p1_top * 2**(64*(FP_LIMBS-1)) the same
+        # way fp_mul's reduction does: each round m = t[row] cancels exactly
+        # against t[row] (p0i == 1 here, guaranteed by has_single_limb_p1)
+        # and folds a single 64x64 product into the high half, instead of
+        # fp_internal_reduce's full N-limb multiply-accumulate per round.
+        N = self.n
+        mod = self.modulus
+        p1_top = mod[-1] + 1
+
+        lines = [
+            "void",
+            "fp_sqr(fp_t *out, const fp_t *a)",
+            "{",
+        ]
+        lines.append(self._SQR_PRODUCT_BODY.rstrip("\n"))
+        lines.append("")
+        lines.append("    uint64_t cch = 0;")
+        for row in range(N):
+            pos = row + N - 1
+            lines.append(f"    /* round {row}: fold t[{row}] into the high half via t[{row}]*p1_top */")
+            lines.append("    {")
+            lines.append(f"        uint64_t q = {self.p0i_expr(f't[{row}]')};")
+            lines.append("        uint64_t lo, hi;")
+            lines.append(f"        mul_u64(&lo, &hi, q, {self.c_u64(p1_top)});")
+            lines.append(f"        unsigned char c = addcarry_u64(0, t[{pos}], lo, &t[{pos}]);")
+            lines.append(f"        c = addcarry_u64(c, t[{pos + 1}], hi, &t[{pos + 1}]);")
+            for k in range(pos + 2, 2 * N):
+                lines.append(f"        c = addcarry_u64(c, t[{k}], 0, &t[{k}]);")
+            lines.append("        cch += (uint64_t)c;")
+            lines.append("    }")
+        lines.append("")
+        lines.append("    unsigned char borrow = 0;")
+        for i in range(N):
+            lines.append(
+                f"    borrow = subborrow_u64(borrow, t[FP_LIMBS + {i}], {self.c_u64(mod[i])}, &t[FP_LIMBS + {i}]);"
+            )
+        lines.append("    uint64_t mask = cch - (uint64_t)borrow;")
+        lines.append("    unsigned char carry = 0;")
+        for i in range(N):
+            lines.append(
+                f"    carry = addcarry_u64(carry, t[FP_LIMBS + {i}], {self.c_u64(mod[i])} & mask, &t[FP_LIMBS + {i}]);"
+            )
+        lines.append("    (void)carry;")
+        lines.append("")
+        lines.append(
+            "    fp_t r = { { " + ", ".join(f"t[FP_LIMBS + {i}]" for i in range(N)) + " } };"
+        )
+        lines.append("    *out = r;")
+        lines.append("}")
+
+        return "\n".join(lines) + "\n"
+
+    def generate_sqr(self) -> str:
+        if self.has_single_limb_p1:
+            return self.generate_sqr_p1_fused()
+        return self.generate_sqr_generic()
 
     def generate_n_sqr(self) -> str:
         return r"""\
@@ -1594,6 +1700,7 @@ fp_less_than(const fp_t *x1, const fp_t *x2)
             self.generate_set_small(),
             self.generate_add(),
             self.generate_sub(),
+            self.generate_hadamard(),
             self.generate_neg(),
             self.generate_double(),
             self.generate_half(),
