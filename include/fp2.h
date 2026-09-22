@@ -1,8 +1,8 @@
 #ifndef FP2_H
 #define FP2_H
 
-/* Angle brackets (not "fp.h") so the Scott benchmark build can swap in
- * include/scott/fp.h purely via -I order; a quoted include would always
+/* Angle brackets (not "fp.h") so the Modarith benchmark build can swap in
+ * include/modarith/fp.h purely via -I order; a quoted include would always
  * resolve to this file's own directory first. */
 #include <fp.h>
 
@@ -35,7 +35,7 @@ void fp2_mul_small(fp2_t *x, const fp2_t *y, uint32_t n);
 void fp2_mul(fp2_t *x, const fp2_t *y, const fp2_t *z);
 void fp2_sqr(fp2_t *x, const fp2_t *y);
 
-void fp2_mul_by_i(fp2_t *a, const fp2_t *b, uint32_t ctl);
+void fp2_mul_by_i(fp2_t *a, const fp2_t *b);
 void fp2_frob(fp2_t *out, const fp2_t *in);
 void fp2_inv(fp2_t *out, const fp2_t *in);
 

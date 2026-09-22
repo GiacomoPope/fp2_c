@@ -1,6 +1,10 @@
 #ifndef FP_H
 #define FP_H
 
+// WARNING: this file is a lazy wrapper just to get benchmarks working
+// and some functions have been written with secret dependant branching
+// DO NOT USE for production code.
+
 #include "fp_scott.c"
 
 #include <stddef.h>
@@ -69,6 +73,16 @@ static inline void
 fp_neg(fp_t *r, const fp_t *a)
 {
     modneg(a->limb, r->limb);
+}
+
+static inline void
+fp_hadamard(fp_t *r1, fp_t *r2, const fp_t *a, const fp_t *b)
+{
+    fp_t sum, diff;
+    modadd(a->limb, b->limb, sum.limb);
+    modsub(a->limb, b->limb, diff.limb);
+    *r1 = sum;
+    *r2 = diff;
 }
 
 static inline void
@@ -144,6 +158,14 @@ fp_cond_swap(fp_t *a, fp_t *b, uint32_t ctl)
 }
 
 static inline void
+fp_cond_neg(fp_t *a, uint32_t ctl)
+{
+    fp_t neg;
+    fp_neg(&neg, a);
+    fp_select(a, a, &neg, ctl);
+}
+
+static inline void
 fp_exp3div4(fp_t *r, const fp_t *a)
 {
     modpro(a->limb, r->limb);
@@ -161,6 +183,14 @@ fp_is_square(const fp_t *x)
     if (modis0(x->limb))
         return 0;
     return modqr(NULL, x->limb) ? UINT32_MAX : 0;
+}
+
+static inline int32_t
+fp_legendre(const fp_t *x)
+{
+    if (modis0(x->limb))
+        return 0;
+    return modqr(NULL, x->limb) ? 1 : -1;
 }
 
 static inline uint32_t

@@ -4,12 +4,15 @@ p628_317_VALUE := "317 * 2**628 - 1"
 
 PRIMES           := p308_633 p474_593 p628_317
 BROADWELL_PRIMES := p308_633 p474_593 p628_317
+U32_PRIMES       := p308_633 p474_593 p628_317
 
-# Scott's own benchmark keeps its generated code under src/scott/p_XXX,
-# named independently of our p308_633-style prime identifiers.
-p308_633_SCOTT_DIR := p_308
-p474_593_SCOTT_DIR := p_474
-p628_317_SCOTT_DIR := p_628
+p308_633_MODARITH_U64_DIR := u64/p_308_633
+p474_593_MODARITH_U64_DIR := u64/p_474_593
+p628_317_MODARITH_U64_DIR := u64/p_628_317
+
+p308_633_MODARITH_U32_DIR := u32/p308_633
+p474_593_MODARITH_U32_DIR := u32/p474_593
+p628_317_MODARITH_U32_DIR := u32/p628_317
 
 CC        := clang
 CFLAGS    := -Wall -Wextra -std=c99 -O3 -march=native
@@ -17,29 +20,32 @@ PYTHON    := python3
 
 BUILD_DIR := build
 BUILD_DIR_BROADWELL := build_broadwell
+BUILD_DIR_U32 := build_u32
 GEN_SCRIPT:= generator/gen_fp.py
+GEN_SCRIPT_U32 := generator/gen_fp_u32.py
 
 # Lists of generated test and benchmark binaries
 TEST_BINS  := $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/test_fp) \
               $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/test_fp2)
 BENCH_BINS := $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/bench_fp) \
-              $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/bench_fp2) \
-              $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/bench_hadamard)
+              $(foreach p,$(PRIMES),$(BUILD_DIR)/$(p)/bench_fp2)
 
-# Mike Scott's reference benchmark, and our own isogeny chains recompiled
-# against his field arithmetic via include/scott/fp.h. One binary of each
-# per prime.
-BENCH_SCOTT_BINS        := $(foreach p,$(PRIMES),$(BUILD_DIR)/bench_scott_$(p))
-BENCH_SCOTT_CHAINS_BINS := $(foreach p,$(PRIMES),$(BUILD_DIR)/bench_scott_chains_$(p))
-BENCH_SCOTT_FP2_BINS    := $(foreach p,$(PRIMES),$(BUILD_DIR)/bench_scott_fp2_$(p))
+BENCH_MODARITH_BINS     := $(foreach p,$(PRIMES),$(BUILD_DIR)/bench_modarith_$(p)/bench_fp) \
+                         $(foreach p,$(PRIMES),$(BUILD_DIR)/bench_modarith_$(p)/bench_fp2)
+BENCH_MODARITH_U32_BINS := $(foreach p,$(U32_PRIMES),$(BUILD_DIR_U32)/bench_modarith_$(p)/bench_fp) \
+                         $(foreach p,$(U32_PRIMES),$(BUILD_DIR_U32)/bench_modarith_$(p)/bench_fp2)
 
 TEST_BROADWELL_BINS  := $(foreach p,$(BROADWELL_PRIMES),$(BUILD_DIR_BROADWELL)/$(p)/test_fp) \
                          $(foreach p,$(BROADWELL_PRIMES),$(BUILD_DIR_BROADWELL)/$(p)/test_fp2)
 BENCH_BROADWELL_BINS := $(foreach p,$(BROADWELL_PRIMES),$(BUILD_DIR_BROADWELL)/$(p)/bench_fp) \
-                         $(foreach p,$(BROADWELL_PRIMES),$(BUILD_DIR_BROADWELL)/$(p)/bench_fp2) \
-                         $(foreach p,$(BROADWELL_PRIMES),$(BUILD_DIR_BROADWELL)/$(p)/bench_hadamard)
+                         $(foreach p,$(BROADWELL_PRIMES),$(BUILD_DIR_BROADWELL)/$(p)/bench_fp2)
 
-.PHONY: all build-tests tests bench clean tests-broadwell bench-broadwell
+TEST_U32_BINS  := $(foreach p,$(U32_PRIMES),$(BUILD_DIR_U32)/$(p)/test_fp) \
+                   $(foreach p,$(U32_PRIMES),$(BUILD_DIR_U32)/$(p)/test_fp2)
+BENCH_U32_BINS := $(foreach p,$(U32_PRIMES),$(BUILD_DIR_U32)/$(p)/bench_fp) \
+                   $(foreach p,$(U32_PRIMES),$(BUILD_DIR_U32)/$(p)/bench_fp2)
+
+.PHONY: all build-tests tests bench clean tests-broadwell bench-broadwell tests-u32 bench-u32
 
 all: tests
 
@@ -51,8 +57,8 @@ tests: $(TEST_BINS)
 		./$$test || exit 1; \
 	done
 
-bench: $(BENCH_BINS) $(BENCH_SCOTT_BINS) $(BENCH_SCOTT_CHAINS_BINS) $(BENCH_SCOTT_FP2_BINS)
-	@for bench in $(BENCH_BINS) $(BENCH_SCOTT_BINS) $(BENCH_SCOTT_CHAINS_BINS) $(BENCH_SCOTT_FP2_BINS); do \
+bench: $(BENCH_BINS) $(BENCH_MODARITH_BINS)
+	@for bench in $(BENCH_BINS) $(BENCH_MODARITH_BINS); do \
 		echo "=== Running $$bench ==="; \
 		./$$bench || exit 1; \
 	done
@@ -69,39 +75,57 @@ bench-broadwell: $(BENCH_BROADWELL_BINS)
 		./$$bench || exit 1; \
 	done
 
+tests-u32: $(TEST_U32_BINS)
+	@for test in $(TEST_U32_BINS); do \
+		echo "=== Running $$test ==="; \
+		./$$test || exit 1; \
+	done
+
+bench-u32: $(BENCH_U32_BINS) $(BENCH_MODARITH_U32_BINS)
+	@for bench in $(BENCH_U32_BINS) $(BENCH_MODARITH_U32_BINS); do \
+		echo "=== Running $$bench ==="; \
+		./$$bench || exit 1; \
+	done
 
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
-# One bench_scott_<prime> and bench_scott_chains_<prime> rule per entry in
-# PRIMES, generated from these templates instead of hand-duplicated.
-define SCOTT_BENCH_RULE
-$(BUILD_DIR)/bench_scott_$(1): src/scott/$($(1)_SCOTT_DIR)/fp_scott.c bench/bench_scott.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/$($(1)_SCOTT_DIR) bench/bench_scott.c -o $$@
-endef
+define MODARITH_BENCH_RULE
+$(BUILD_DIR)/bench_modarith_$(1)/bench_fp: src/modarith/$($(1)_MODARITH_U64_DIR)/fp_scott.c bench/bench_fp.c \
+                                         include/modarith/fp.h include/two_two_isogeny_chain.h src/two_two_isogeny_chain.c \
+                                         include/theta_dim4.h src/theta_dim4.c bench/bench_utils.h | $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/bench_modarith_$(1)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude/modarith -Isrc/modarith/$($(1)_MODARITH_U64_DIR) -Iinclude \
+		bench/bench_fp.c src/two_two_isogeny_chain.c src/theta_dim4.c -o $$@
 
-define SCOTT_CHAINS_BENCH_RULE
-$(BUILD_DIR)/bench_scott_chains_$(1): src/scott/$($(1)_SCOTT_DIR)/fp_scott.c bench/bench_scott_chains.c \
-                                       include/scott/fp.h include/fp2.h src/fp2.c \
-                                       include/two_two_isogeny_chain.h src/two_two_isogeny_chain.c \
-                                       include/four_isogeny_chain.h src/four_isogeny_chain.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude/scott -Isrc/scott/$($(1)_SCOTT_DIR) -Iinclude \
-		bench/bench_scott_chains.c src/fp2.c src/two_two_isogeny_chain.c src/four_isogeny_chain.c -o $$@
-endef
-
-define SCOTT_FP2_BENCH_RULE
-$(BUILD_DIR)/bench_scott_fp2_$(1): src/scott/$($(1)_SCOTT_DIR)/fp_scott.c bench/bench_fp2.c \
-                                    include/scott/fp.h include/fp2.h src/fp2.c \
-                                    include/four_isogeny_chain.h src/four_isogeny_chain.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude/scott -Isrc/scott/$($(1)_SCOTT_DIR) -Iinclude \
+$(BUILD_DIR)/bench_modarith_$(1)/bench_fp2: src/modarith/$($(1)_MODARITH_U64_DIR)/fp_scott.c bench/bench_fp2.c \
+                                          include/modarith/fp.h include/fp2.h src/fp2.c \
+                                          include/four_isogeny_chain.h src/four_isogeny_chain.c bench/bench_utils.h | $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR)/bench_modarith_$(1)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude/modarith -Isrc/modarith/$($(1)_MODARITH_U64_DIR) -Iinclude \
 		bench/bench_fp2.c src/fp2.c src/four_isogeny_chain.c -o $$@
 endef
 
-$(foreach p,$(PRIMES),$(eval $(call SCOTT_BENCH_RULE,$(p))))
-$(foreach p,$(PRIMES),$(eval $(call SCOTT_CHAINS_BENCH_RULE,$(p))))
-$(foreach p,$(PRIMES),$(eval $(call SCOTT_FP2_BENCH_RULE,$(p))))
+$(foreach p,$(PRIMES),$(eval $(call MODARITH_BENCH_RULE,$(p))))
 
-# Outputs directly to root include/generated/<prime> and src/generated/<prime>
+define MODARITH_U32_BENCH_RULE
+$(BUILD_DIR_U32)/bench_modarith_$(1)/bench_fp: src/modarith/$($(1)_MODARITH_U32_DIR)/fp_scott.c bench/bench_fp.c \
+                                             include/modarith/fp.h include/two_two_isogeny_chain.h src/two_two_isogeny_chain.c \
+                                             include/theta_dim4.h src/theta_dim4.c bench/bench_utils.h | $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR_U32)/bench_modarith_$(1)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude/modarith -Isrc/modarith/$($(1)_MODARITH_U32_DIR) -Iinclude \
+		bench/bench_fp.c src/two_two_isogeny_chain.c src/theta_dim4.c -o $$@
+
+$(BUILD_DIR_U32)/bench_modarith_$(1)/bench_fp2: src/modarith/$($(1)_MODARITH_U32_DIR)/fp_scott.c bench/bench_fp2.c \
+                                              include/modarith/fp.h include/fp2.h src/fp2.c \
+                                              include/four_isogeny_chain.h src/four_isogeny_chain.c bench/bench_utils.h | $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR_U32)/bench_modarith_$(1)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude/modarith -Isrc/modarith/$($(1)_MODARITH_U32_DIR) -Iinclude \
+		bench/bench_fp2.c src/fp2.c src/four_isogeny_chain.c -o $$@
+endef
+
+$(foreach p,$(U32_PRIMES),$(eval $(call MODARITH_U32_BENCH_RULE,$(p))))
+
 .PRECIOUS: include/generated/%/fp_defs.h src/generated/%/fp.c
 
 include/generated/%/fp_defs.h src/generated/%/fp.c: $(GEN_SCRIPT)
@@ -115,9 +139,10 @@ $(BUILD_DIR)/%/test_fp: tests/test_fp.c src/generated/%/fp.c include/generated/%
 	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c -o $@
 
 $(BUILD_DIR)/%/bench_fp: bench/bench_fp.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h \
-                         include/two_two_isogeny_chain.h src/two_two_isogeny_chain.c bench/bench_utils.h | $(BUILD_DIR)
+                         include/two_two_isogeny_chain.h src/two_two_isogeny_chain.c \
+                         include/theta_dim4.h src/theta_dim4.c bench/bench_utils.h | $(BUILD_DIR)
 	@mkdir -p $(BUILD_DIR)/$*
-	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c src/two_two_isogeny_chain.c -o $@
+	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c src/two_two_isogeny_chain.c src/theta_dim4.c -o $@
 
 $(BUILD_DIR)/%/test_fp2: tests/test_fp2.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h include/fp2.h | $(BUILD_DIR)
 	@mkdir -p $(BUILD_DIR)/$*
@@ -127,11 +152,6 @@ $(BUILD_DIR)/%/bench_fp2: bench/bench_fp2.c src/generated/%/fp.c include/generat
                           include/four_isogeny_chain.h src/four_isogeny_chain.c bench/bench_utils.h | $(BUILD_DIR)
 	@mkdir -p $(BUILD_DIR)/$*
 	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c src/fp2.c src/four_isogeny_chain.c -o $@
-
-$(BUILD_DIR)/%/bench_hadamard: bench/bench_hadamard.c src/generated/%/fp.c include/generated/%/fp_defs.h include/fp.h \
-                                include/theta_dim4.h src/theta_dim4.c bench/bench_utils.h | $(BUILD_DIR)
-	@mkdir -p $(BUILD_DIR)/$*
-	$(CC) $(CFLAGS) -Iinclude/generated/$* -Iinclude $< src/generated/$*/fp.c src/theta_dim4.c -o $@
 
 .PRECIOUS: include/generated_broadwell/%/fp_defs.h src/generated_broadwell/%/fp.c src/generated_broadwell/%/fp_asm.S
 
@@ -150,10 +170,11 @@ $(BUILD_DIR_BROADWELL)/%/test_fp: tests/test_fp.c src/generated_broadwell/%/fp.c
 
 $(BUILD_DIR_BROADWELL)/%/bench_fp: bench/bench_fp.c src/generated_broadwell/%/fp.c src/generated_broadwell/%/fp_asm.S \
                                     include/generated_broadwell/%/fp_defs.h include/fp.h \
-                                    include/two_two_isogeny_chain.h src/two_two_isogeny_chain.c bench/bench_utils.h | $(BUILD_DIR)
+                                    include/two_two_isogeny_chain.h src/two_two_isogeny_chain.c \
+                                    include/theta_dim4.h src/theta_dim4.c bench/bench_utils.h | $(BUILD_DIR)
 	@mkdir -p $(BUILD_DIR_BROADWELL)/$*
 	$(CC) $(CFLAGS) -Iinclude/generated_broadwell/$* -Iinclude $< \
-		src/generated_broadwell/$*/fp.c src/generated_broadwell/$*/fp_asm.S src/two_two_isogeny_chain.c -o $@
+		src/generated_broadwell/$*/fp.c src/generated_broadwell/$*/fp_asm.S src/two_two_isogeny_chain.c src/theta_dim4.c -o $@
 
 $(BUILD_DIR_BROADWELL)/%/test_fp2: tests/test_fp2.c src/generated_broadwell/%/fp.c src/generated_broadwell/%/fp_asm.S \
                                     include/generated_broadwell/%/fp_defs.h include/fp.h include/fp2.h | $(BUILD_DIR)
@@ -168,12 +189,33 @@ $(BUILD_DIR_BROADWELL)/%/bench_fp2: bench/bench_fp2.c src/generated_broadwell/%/
 	$(CC) $(CFLAGS) -Iinclude/generated_broadwell/$* -Iinclude $< \
 		src/generated_broadwell/$*/fp.c src/generated_broadwell/$*/fp_asm.S src/fp2.c src/four_isogeny_chain.c -o $@
 
-$(BUILD_DIR_BROADWELL)/%/bench_hadamard: bench/bench_hadamard.c src/generated_broadwell/%/fp.c src/generated_broadwell/%/fp_asm.S \
-                                          include/generated_broadwell/%/fp_defs.h include/fp.h \
-                                          include/theta_dim4.h src/theta_dim4.c bench/bench_utils.h | $(BUILD_DIR)
-	@mkdir -p $(BUILD_DIR_BROADWELL)/$*
-	$(CC) $(CFLAGS) -Iinclude/generated_broadwell/$* -Iinclude $< \
-		src/generated_broadwell/$*/fp.c src/generated_broadwell/$*/fp_asm.S src/theta_dim4.c -o $@
+.PRECIOUS: include/generated_u32/%/fp_defs.h src/generated_u32/%/fp.c
+
+include/generated_u32/%/fp_defs.h src/generated_u32/%/fp.c: $(GEN_SCRIPT_U32)
+	@mkdir -p include/generated_u32/$* src/generated_u32/$*
+	$(PYTHON) $(GEN_SCRIPT_U32) $($*_VALUE) \
+		--include-dir include/generated_u32/$* \
+		--source-dir src/generated_u32/$*
+
+$(BUILD_DIR_U32)/%/test_fp: tests/test_fp.c src/generated_u32/%/fp.c include/generated_u32/%/fp_defs.h include/fp.h include/util_32.h | $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR_U32)/$*
+	$(CC) $(CFLAGS) -Iinclude/generated_u32/$* -Iinclude $< src/generated_u32/$*/fp.c -o $@
+
+$(BUILD_DIR_U32)/%/bench_fp: bench/bench_fp.c src/generated_u32/%/fp.c include/generated_u32/%/fp_defs.h include/fp.h include/util_32.h \
+                             include/two_two_isogeny_chain.h src/two_two_isogeny_chain.c \
+                             include/theta_dim4.h src/theta_dim4.c bench/bench_utils.h | $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR_U32)/$*
+	$(CC) $(CFLAGS) -Iinclude/generated_u32/$* -Iinclude $< src/generated_u32/$*/fp.c src/two_two_isogeny_chain.c src/theta_dim4.c -o $@
+
+$(BUILD_DIR_U32)/%/test_fp2: tests/test_fp2.c src/generated_u32/%/fp.c include/generated_u32/%/fp_defs.h include/fp.h include/util_32.h include/fp2.h | $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR_U32)/$*
+	$(CC) $(CFLAGS) -Iinclude/generated_u32/$* -Iinclude $< src/generated_u32/$*/fp.c src/fp2.c -o $@
+
+$(BUILD_DIR_U32)/%/bench_fp2: bench/bench_fp2.c src/generated_u32/%/fp.c include/generated_u32/%/fp_defs.h include/fp.h include/util_32.h include/fp2.h \
+                              include/four_isogeny_chain.h src/four_isogeny_chain.c bench/bench_utils.h | $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR_U32)/$*
+	$(CC) $(CFLAGS) -Iinclude/generated_u32/$* -Iinclude $< src/generated_u32/$*/fp.c src/fp2.c src/four_isogeny_chain.c -o $@
 
 clean:
-	rm -rf $(BUILD_DIR) $(BUILD_DIR_BROADWELL) include/generated src/generated include/generated_broadwell src/generated_broadwell
+	rm -rf $(BUILD_DIR) $(BUILD_DIR_BROADWELL) $(BUILD_DIR_U32) include/generated src/generated \
+		include/generated_broadwell src/generated_broadwell include/generated_u32 src/generated_u32

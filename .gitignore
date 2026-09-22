@@ -1,14 +1,18 @@
 # Built binaries
 /build
 /build_broadwell
+/build_u32
 # Mac nonsense
 .DS_Store
 # I have locally compiled rust code to compare
 fp2_rs
 # Python nonsense
 __pycache__
+# Generated Source
 /src/generated
-/include/generated
+/src/generated_u32
 /src/generated_broadwell
+/include/generated
+/include/generated_u32
 /include/generated_broadwell
 

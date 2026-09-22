@@ -92,15 +92,30 @@ test_is_zero(void)
 static void
 test_small_mul(void)
 {
-    uint8_t two[FP_ENCODED_BYTES] = { 2 };
-    uint8_t three[FP_ENCODED_BYTES] = { 3 };
-    uint8_t six[FP_ENCODED_BYTES] = { 6 };
     fp_t a, b, c, want;
-    assert(fp_decode(&a, two) == UINT32_MAX);
-    assert(fp_decode(&b, three) == UINT32_MAX);
-    assert(fp_decode(&want, six) == UINT32_MAX);
+    fp_set_small(&a, 2);
+    fp_set_small(&b, 3);
+    fp_set_small(&want, 6);
     fp_mul(&c, &a, &b);
     assert(fp_equals(&c, &want) == UINT32_MAX);
+}
+
+static void
+test_set_small(void)
+{
+    uint8_t five[FP_ENCODED_BYTES] = { 5 };
+    fp_t x, want, neg;
+    assert(fp_decode(&want, five) == UINT32_MAX);
+
+    fp_set_small(&x, 5);
+    assert(fp_equals(&x, &want) == UINT32_MAX);
+
+    fp_set_small(&x, -5);
+    fp_neg(&neg, &want);
+    assert(fp_equals(&x, &neg) == UINT32_MAX);
+
+    fp_set_small(&x, 0);
+    assert(fp_is_zero(&x) == UINT32_MAX);
 }
 
 static void
@@ -149,8 +164,7 @@ static void
 test_random_neg(void)
 {
     fp_t zero;
-    uint8_t z[FP_ENCODED_BYTES] = { 0 };
-    assert(fp_decode(&zero, z) == UINT32_MAX);
+    fp_set_zero(&zero);
 
     for (unsigned i = 0; i < 1000; i++) {
         fp_t a, neg, check;
@@ -183,11 +197,9 @@ test_random_sqrt(void)
 static void
 test_small_inv(void)
 {
-    uint8_t two[FP_ENCODED_BYTES] = { 2 };
-    uint8_t one[FP_ENCODED_BYTES] = { 1 };
     fp_t a, inv, check, want;
-    assert(fp_decode(&a, two) == UINT32_MAX);
-    assert(fp_decode(&want, one) == UINT32_MAX);
+    fp_set_small(&a, 2);
+    fp_set_small(&want, 1);
     fp_inv(&inv, &a);
     fp_mul(&check, &inv, &a);
     assert(fp_equals(&check, &want) == UINT32_MAX);
@@ -196,9 +208,8 @@ test_small_inv(void)
 static void
 test_random_inv(void)
 {
-    uint8_t zero[FP_ENCODED_BYTES] = { 0 };
     fp_t z, invz;
-    assert(fp_decode(&z, zero) == UINT32_MAX);
+    fp_set_zero(&z);
     fp_inv(&invz, &z);
     assert(fp_equals(&invz, &z) == UINT32_MAX);
 
@@ -219,12 +230,10 @@ test_random_inv(void)
 static void
 test_legendre(void)
 {
-    uint8_t zero[FP_ENCODED_BYTES] = { 0 };
-    uint8_t one[FP_ENCODED_BYTES] = { 1 };
     fp_t z, o, nqr;
-    assert(fp_decode(&z, zero) == UINT32_MAX);
-    assert(fp_decode(&o, one) == UINT32_MAX);
-    
+    fp_set_zero(&z);
+    fp_set_small(&o, 1);
+
     random_element(&nqr);
     fp_sqr(&nqr, &nqr);
     fp_neg(&nqr, &nqr);
@@ -244,9 +253,8 @@ test_legendre(void)
 static void
 test_double(void)
 {
-    uint8_t two[FP_ENCODED_BYTES] = { 2 };
     fp_t x, got, want;
-    assert(fp_decode(&x, two) == UINT32_MAX);
+    fp_set_small(&x, 2);
 
     fp_add(&want, &x, &x);
     fp_double(&got, &x);
@@ -271,8 +279,7 @@ test_mul_small(void)
             fp_mul_small(&got, &x, k);
 
             if (k == 0) {
-                uint8_t zero[FP_ENCODED_BYTES] = { 0 };
-                fp_decode(&want, zero);
+                fp_set_zero(&want);
             } else {
                 int32_t ak = k < 0 ? -k : k;
                 want = x;
@@ -297,44 +304,30 @@ test_mul_small(void)
 static void
 test_ct_helpers(void)
 {
-    uint8_t one[FP_ENCODED_BYTES] = { 1 };
-    uint8_t two[FP_ENCODED_BYTES] = { 2 };
     fp_t a, b, r;
-    assert(fp_decode(&a, one) == UINT32_MAX);
-    assert(fp_decode(&b, two) == UINT32_MAX);
+    fp_set_small(&a, 1);
+    fp_set_small(&b, 2);
+    const fp_t one = a, two = b;
 
     fp_select(&r, &a, &b, 0);
     assert(fp_equals(&r, &a) == UINT32_MAX);
     fp_select(&r, &a, &b, UINT32_MAX);
     assert(fp_equals(&r, &b) == UINT32_MAX);
 
+    fp_t expected;
+    fp_neg(&expected, &b);
     fp_cond_neg(&r, 0);
     assert(fp_equals(&r, &b) == UINT32_MAX);
-    {
-        fp_t expected;
-        fp_neg(&expected, &b);
-        fp_cond_neg(&r, UINT32_MAX);
-        assert(fp_equals(&r, &expected) == UINT32_MAX);
-    }
+    fp_cond_neg(&r, UINT32_MAX);
+    assert(fp_equals(&r, &expected) == UINT32_MAX);
 
     fp_cond_swap(&a, &b, 0);
-    {
-        fp_t one2, two2;
-        fp_decode(&one2, one);
-        fp_decode(&two2, two);
-        assert(fp_equals(&a, &one2) == UINT32_MAX);
-        assert(fp_equals(&b, &two2) == UINT32_MAX);
-    }
+    assert(fp_equals(&a, &one) == UINT32_MAX);
+    assert(fp_equals(&b, &two) == UINT32_MAX);
     fp_cond_swap(&a, &b, UINT32_MAX);
-    {
-        fp_t one2, two2;
-        fp_decode(&one2, one);
-        fp_decode(&two2, two);
-        assert(fp_equals(&a, &two2) == UINT32_MAX);
-        assert(fp_equals(&b, &one2) == UINT32_MAX);
-    }
+    assert(fp_equals(&a, &two) == UINT32_MAX);
+    assert(fp_equals(&b, &one) == UINT32_MAX);
 }
-
 
 static void
 test_half(void)
@@ -398,25 +391,19 @@ test_batch_invert(void)
 
         for (size_t i = 0; i < len; i++) {
             random_element(&v[i]);
-            if ((i % 11) == 0) {
-                uint8_t z[FP_ENCODED_BYTES] = { 0 };
-                assert(fp_decode(&v[i], z) == UINT32_MAX);
-            }
+            if ((i % 11) == 0)
+                fp_set_zero(&v[i]);
             want[i] = v[i];
         }
 
         fp_batch_invert(v, len);
         for (size_t i = 0; i < len; i++) {
-            fp_t zero = { { 0 } };
-            if (fp_equals(&want[i], &zero) == UINT32_MAX) {
-                assert(fp_equals(&v[i], &zero) == UINT32_MAX);
+            if (fp_is_zero(&want[i]) == UINT32_MAX) {
+                assert(fp_is_zero(&v[i]) == UINT32_MAX);
             } else {
-                fp_t check;
+                fp_t check, one;
                 fp_mul(&check, &v[i], &want[i]);
-                fp_t one;
-                uint8_t one_bytes[FP_ENCODED_BYTES] = { 0 };
-                one_bytes[0] = 1;
-                assert(fp_decode(&one, one_bytes) == UINT32_MAX);
+                fp_set_small(&one, 1);
                 assert(fp_equals(&check, &one) == UINT32_MAX);
             }
         }
@@ -460,6 +447,7 @@ main(void)
     test_equals();
     test_is_zero();
     test_decode_reduce();
+    test_set_small();
     test_small_mul();
     test_double();
     test_half();

@@ -7,7 +7,7 @@
 #include "fp_defs.h"
 
 typedef struct {
-    uint64_t limb[FP_LIMBS];
+    fp_limb_t limb[FP_LIMBS];
 } fp_t;
 
 /* Set fp to 0 */
@@ -73,7 +73,7 @@ void fp_cond_swap(fp_t *a, fp_t *b, uint32_t ctl);
 void fp_cond_neg(fp_t *a, uint32_t ctl);
 
 /* r = a^e for a public exponent encoded as FP_LIMBS little-endian words. */
-void fp_pow_pubexp(fp_t *r, const fp_t *a, const uint64_t e[FP_LIMBS]);
+void fp_pow_pubexp(fp_t *r, const fp_t *a, const fp_limb_t e[FP_LIMBS]);
 
 /* Computes a square root. Returns UINT32_MAX on success, 0 otherwise. */
 uint32_t fp_sqrt(fp_t *r, const fp_t *a);

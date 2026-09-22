@@ -1,5 +1,6 @@
 #include "fp.h"
 #include "two_two_isogeny_chain.h"
+#include "theta_dim4.h"
 #include "bench_utils.h"
 
 static void
@@ -42,6 +43,13 @@ make_random_theta(theta_t *t)
     fp_random_element(&t->t);
 }
 
+static void
+random_theta_dim4(theta_dim4_t *t)
+{
+    for (int i = 0; i < 16; i++)
+        fp_random_element(&t->coords[i]);
+}
+
 int
 main(void)
 {
@@ -59,6 +67,7 @@ main(void)
         fp_sum_of_products(&r, &a, &b, &c, &d);
         fp_difference_of_products(&r, &a, &b, &c, &d);
         fp_half(&r, &a);
+        fp_hadamard(&r, &d, &a, &b);
     }
 
     printf("\n--------------------------------------------------------------------------\n\n");
@@ -293,6 +302,65 @@ main(void)
         (void)symbol;
     }
     print_result("GF(p) Legendre", runs, BENCH_EXPENSIVE_LOOPS, 2);
+
+    /* Single pair, naive: r1 = a+b, r2 = a-b via fp_add + fp_sub. */
+    fp_t r1, r2;
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
+            fp_add(&r1, &a, &b);
+            fp_sub(&r2, &a, &b);
+            fp_add(&a, &r1, &r2);
+            fp_sub(&b, &r1, &r2);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    print_result("GF(p) Hadamard pair, naive add+sub", runs, BENCH_LOOPS, 4);
+
+    /* Single pair, fused fp_hadamard. */
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
+            fp_hadamard(&r1, &r2, &a, &b);
+            fp_hadamard(&a, &b, &r1, &r2);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    print_result("GF(p) Hadamard pair, fused", runs, BENCH_LOOPS, 2);
+
+    theta_dim4_t coords;
+    random_theta_dim4(&coords);
+
+    /* dim-4 (16-coordinate) transform, naive add+sub. */
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
+            theta_dim4_hadamard_naive(&coords, &coords);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    print_result("GF(p) dim-4 Hadamard, naive add+sub", runs, BENCH_LOOPS, 1);
+
+    /* dim-4 (16-coordinate) transform, fused fp_hadamard. */
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
+            theta_dim4_hadamard(&coords, &coords);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    print_result("GF(p) dim_four_hadamard", runs, BENCH_LOOPS, 1);
+
+    /* dim-4 (16-coordinate) squaring: 16 independent fp_sqr calls. */
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_EXPENSIVE_LOOPS; n++) {
+            theta_dim4_square(&coords, &coords);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    print_result("GF(p) dim-4 square (16x fp_sqr)", runs, BENCH_EXPENSIVE_LOOPS, 1);
+    fp_encode(tmp, &coords.coords[0]);
 
     theta_t domain, k1, k2, theta_codomain;
     make_random_theta(&domain);

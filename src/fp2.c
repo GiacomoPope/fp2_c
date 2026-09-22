@@ -85,8 +85,11 @@ fp2_half(fp2_t *x, const fp2_t *y)
 void
 fp2_mul(fp2_t *x, const fp2_t *y, const fp2_t *z)
 {
-    fp_difference_of_products(&x->re, &y->re, &z->re, &y->im, &z->im);
-    fp_sum_of_products(&x->im, &y->re, &z->im, &y->im, &z->re);
+    fp_t re, im;
+    fp_difference_of_products(&re, &y->re, &z->re, &y->im, &z->im);
+    fp_sum_of_products(&im, &y->re, &z->im, &y->im, &z->re);
+    x->re = re;
+    x->im = im;
 }
 
 void
@@ -102,14 +105,13 @@ fp2_sqr(fp2_t *x, const fp2_t *y)
 }
 
 void
-fp2_mul_by_i(fp2_t *x, const fp2_t *y, uint32_t ctl)
+fp2_mul_by_i(fp2_t *x, const fp2_t *y)
 {
-    fp_t t0, t1;
-
-    fp_neg(&t0, &(y->re));
-    fp_neg(&t1, &(y->im));
-    fp_select(&(x->re), &(y->im), &t1, -ctl);
-    fp_select(&(x->im), &t0, &(y->re), -ctl);
+    fp_t re, im;
+    fp_neg(&re, &(y->im));
+    im = y->re;
+    x->re = re;
+    x->im = im;
 }
 
 void
@@ -171,7 +173,7 @@ fp2_sqrt(fp2_t *a, const fp2_t *b)
 
     // x0 = x0 * x1, x1 = x1 * a1, t1 = (2x0)^2.
     fp_mul(&x0, &x0, &x1);
-    fp_mul(&x1, &x1, &(a->im));
+    fp_mul(&x1, &x1, &(b->im));
     fp_add(&t1, &x0, &x0);
     fp_sqr(&t1, &t1);
     // If t1 = t0, return x0 + x1*i, otherwise x1 - x0*i.
@@ -186,30 +188,44 @@ fp2_sqrt(fp2_t *a, const fp2_t *b)
 void
 fp2_batched_inv(fp2_t *x, int len)
 {
-    fp2_t t1[len], t2[len];
-    fp2_t inverse;
+    fp2_t one;
+    fp2_set_one(&one);
 
-    // x = x0,...,xn
-    // t1 = x0, x0*x1, ... ,x0 * x1 * ... * xn
-    fp2_copy(&t1[0], &x[0]);
-    for (int i = 1; i < len; i++) {
-        fp2_mul(&t1[i], &t1[i - 1], &x[i]);
-    }
+    int i = 0;
+    while (i < len) {
+        int blen = len - i;
+        if (blen > 200)
+            blen = 200;
 
-    // inverse = 1/ (x0 * x1 * ... * xn)
-    fp2_copy(&inverse, &t1[len - 1]);
-    fp2_inv(&inverse, &inverse);
+        fp2_t tt[200];
 
-    fp2_copy(&t2[0], &inverse);
-    // t2 = 1/ (x0 * x1 * ... * xn), 1/ (x0 * x1 * ... * x(n-1)) , ... , 1/xO
-    for (int i = 1; i < len; i++) {
-        fp2_mul(&t2[i], &t2[i - 1], &x[len - i]);
-    }
+        tt[0] = x[i];
+        uint32_t z0 = fp2_is_zero(&tt[0]);
+        fp2_select(&tt[0], &tt[0], &one, z0);
 
-    fp2_copy(&x[0], &t2[len - 1]);
+        for (int j = 1; j < blen; j++) {
+            tt[j] = x[i + j];
+            uint32_t z = fp2_is_zero(&tt[j]);
+            fp2_select(&tt[j], &tt[j], &one, z);
+            fp2_mul(&tt[j], &tt[j], &tt[j - 1]);
+        }
 
-    for (int i = 1; i < len; i++) {
-        fp2_mul(&x[i], &t1[i - 1], &t2[len - i - 1]);
+        fp2_t k;
+        fp2_inv(&k, &tt[blen - 1]);
+
+        // Backward pass
+        for (int j = blen; j-- > 1;) {
+            fp2_t cur = x[i + j];
+            uint32_t z = fp2_is_zero(&cur);
+            fp2_select(&cur, &cur, &one, z);
+
+            fp2_t prod;
+            fp2_mul(&prod, &k, &tt[j - 1]);
+            fp2_select(&x[i + j], &x[i + j], &prod, ~z);
+            fp2_mul(&k, &k, &cur);
+        }
+        fp2_select(&x[i], &x[i], &k, ~z0);
+        i += blen;
     }
 }
 
@@ -256,6 +272,13 @@ fp2_cond_swap(fp2_t *a, fp2_t *b, uint32_t ctl)
 {
     fp_cond_swap(&(a->re), &(b->re), ctl);
     fp_cond_swap(&(a->im), &(b->im), ctl);
+}
+
+void
+fp2_cond_neg(fp2_t *a, uint32_t ctl)
+{
+    fp_cond_neg(&(a->re), ctl);
+    fp_cond_neg(&(a->im), ctl);
 }
 
 // Returns UINT32_MAX if x1 < x2, 0 otherwise where x are represented as little endian integers of the form

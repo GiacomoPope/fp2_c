@@ -66,6 +66,6 @@ static void
 print_result(const char *name, uint64_t runs[BENCH_RUNS],
              unsigned loops, uint64_t ops)
 {
-    printf("  %-32s %8" PRIu64 " cycles\n",
+    printf("  %-35s %8" PRIu64 " cycles\n",
            name, bench_value(runs, loops, ops));
 }
