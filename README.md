@@ -6,7 +6,7 @@ The goal is to have an easy way to generate finite field arithmetic for isogeny 
 
 I'm not sure there's enough of a reason to use this code over the reference generation `modarith` at the moment. The `x86` assembly is faster, but that's not an interesting statement. The saturated arithmetic has faster additions (this helps for high dimensional isogeny chains with expensive Hadamards) but the `fp_mul` and `fp_sqr` performance is not significantly better and in some cases is worse. Legendre signs and inversions are much faster in this code, but this is not because of the internal representation, but instead because we use Thomas Pornin's Binary GCD instead of exponentiation.
 
-One thing that is faster (generally, but not always) is the `fp2` arithmetic, mainly as we have generated functions for the sums and differences of products following Patrick Longa's nice work: (Efficient Algorithms for Large Prime Characteristic Fields and Their Application to Bilinear Pairings)[https://eprint.iacr.org/2022/367.pdf]
+One thing that is faster (generally, but not always) is the `fp2` arithmetic, mainly as we have generated functions for the sums and differences of products following Patrick Longa's nice work: [Efficient Algorithms for Large Prime Characteristic Fields and Their Application to Bilinear Pairings](https://eprint.iacr.org/2022/367.pdf)
 
 I'll keep tweaking this and see if I can get something more interesting.
 
