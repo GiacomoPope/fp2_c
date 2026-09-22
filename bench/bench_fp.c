@@ -1,4 +1,5 @@
 #include "fp.h"
+#include "two_two_isogeny_chain.h"
 #include "bench_utils.h"
 
 static void
@@ -8,6 +9,37 @@ make_inputs(fp_t *a, fp_t *b, fp_t *c, fp_t *d)
     fp_set_small(b, 2);
     fp_set_small(c, 3);
     fp_set_small(d, 4);
+}
+
+static uint64_t rng_state = UINT64_C(0x123456789abcdef0);
+
+static uint64_t
+rng64(void)
+{
+    rng_state = rng_state * UINT64_C(6364136223846793005) +
+                UINT64_C(1442695040888963407);
+    return rng_state;
+}
+
+static void
+fp_random_element(fp_t *x)
+{
+    uint8_t bytes[FP_ENCODED_BYTES + 32];
+    for (size_t i = 0; i < sizeof(bytes); i += 8) {
+        uint64_t w = rng64();
+        for (size_t j = 0; j < 8 && i + j < sizeof(bytes); j++)
+            bytes[i + j] = (uint8_t)(w >> (8 * j));
+    }
+    fp_decode_reduce(x, bytes, sizeof(bytes));
+}
+
+static void
+make_random_theta(theta_t *t)
+{
+    fp_random_element(&t->x);
+    fp_random_element(&t->y);
+    fp_random_element(&t->z);
+    fp_random_element(&t->t);
 }
 
 int
@@ -225,6 +257,29 @@ main(void)
         (void)symbol;
     }
     print_result("GF(p) Legendre", runs, BENCH_EXPENSIVE_LOOPS, 2);
+
+    theta_t domain, k1, k2, theta_codomain;
+    make_random_theta(&domain);
+    make_random_theta(&k1);
+    make_random_theta(&k2);
+
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_EXPENSIVE_LOOPS; n++) {
+            two_two_isogeny_chain(&theta_codomain, &domain, &k1, &k2, 128);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    print_result("GF(p) (2,2)-isogeny chain, e=128", runs, BENCH_EXPENSIVE_LOOPS, 1);
+
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_EXPENSIVE_LOOPS; n++) {
+            two_two_isogeny_chain(&theta_codomain, &domain, &k1, &k2, 256);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    print_result("GF(p) (2,2)-isogeny chain, e=256", runs, BENCH_EXPENSIVE_LOOPS, 1);
 
     printf("\nSanity byte: %u\n", tmp[0]);
     return 0;

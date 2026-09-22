@@ -1,4 +1,5 @@
 #include "fp2.h"
+#include "four_isogeny_chain.h"
 #include "bench_utils.h"
 
 static void
@@ -8,6 +9,28 @@ make_inputs(fp2_t *a, fp2_t *b, fp2_t *c, fp2_t *d)
     fp2_set_small(b, 2);
     fp2_set_small(c, 3);
     fp2_set_small(d, 4);
+}
+
+static uint64_t rng_state = UINT64_C(0x123456789abcdef0);
+
+static uint64_t
+rng64(void)
+{
+    rng_state = rng_state * UINT64_C(6364136223846793005) +
+                UINT64_C(1442695040888963407);
+    return rng_state;
+}
+
+static void
+fp2_random_element(fp2_t *x)
+{
+    uint8_t bytes[FP2_ENCODED_BYTES + 32];
+    for (size_t i = 0; i < sizeof(bytes); i += 8) {
+        uint64_t w = rng64();
+        for (size_t j = 0; j < 8 && i + j < sizeof(bytes); j++)
+            bytes[i + j] = (uint8_t)(w >> (8 * j));
+    }
+    fp2_decode_reduce(x, bytes, sizeof(bytes));
 }
 
 int
@@ -182,6 +205,29 @@ main(void)
     }
     fp2_encode(tmp, &a);
     print_result("GF(p^2) sqrt", runs, BENCH_EXPENSIVE_LOOPS, 1);
+
+    fp2_t A, kernel_X, kernel_Z, out_X, out_Z;
+    fp2_random_element(&A);
+    fp2_random_element(&kernel_X);
+    fp2_random_element(&kernel_Z);
+
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_EXPENSIVE_LOOPS; n++) {
+            four_isogeny_chain(&out_X, &out_Z, &A, &kernel_X, &kernel_Z, 128);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    print_result("GF(p^2) 4-isogeny chain, e=128", runs, BENCH_EXPENSIVE_LOOPS, 1);
+
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_EXPENSIVE_LOOPS; n++) {
+            four_isogeny_chain(&out_X, &out_Z, &A, &kernel_X, &kernel_Z, 256);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    print_result("GF(p^2) 4-isogeny chain, e=256", runs, BENCH_EXPENSIVE_LOOPS, 1);
 
     printf("\nSanity byte: %u\n", tmp[0]);
     return 0;

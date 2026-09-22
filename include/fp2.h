@@ -1,7 +1,10 @@
 #ifndef FP2_H
 #define FP2_H
 
-#include "fp.h"
+/* Angle brackets (not "fp.h") so the Scott benchmark build can swap in
+ * include/scott/fp.h purely via -I order; a quoted include would always
+ * resolve to this file's own directory first. */
+#include <fp.h>
 
 #define FP2_ENCODED_BYTES 2 * FP_ENCODED_BYTES
 
