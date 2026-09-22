@@ -5,8 +5,8 @@ p_coral_VALUE := "51 * 2**2026 - 1"
 
 PRIMES        := p308_633 p474_593 p628_317 p_coral
 
-CC        := gcc
-CFLAGS    := -Wall -Wextra -std=c99 -O3
+CC        := clang
+CFLAGS    := -Wall -Wextra -std=c99 -O3 -march=native
 PYTHON    := python3
 
 BUILD_DIR := build
@@ -56,17 +56,17 @@ bench: $(BENCH_BINS) $(BENCH_SCOTT_308_BIN)  $(BENCH_SCOTT_474_BIN)  $(BENCH_SCO
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
-$(BENCH_SCOTT_308_BIN): src/scott/p_308/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_308 src/fp_scott_bench.c bench/bench_scott.c -o $@
+$(BENCH_SCOTT_308_BIN): src/scott/p_308/fp_scott.c bench/bench_scott.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_308 bench/bench_scott.c -o $@
 
-$(BENCH_SCOTT_474_BIN): src/scott/p_474/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_474 src/fp_scott_bench.c bench/bench_scott.c -o $@
+$(BENCH_SCOTT_474_BIN): src/scott/p_474/fp_scott.c bench/bench_scott.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_474 bench/bench_scott.c -o $@
 
-$(BENCH_SCOTT_628_BIN): src/scott/p_628/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_628 src/fp_scott_bench.c bench/bench_scott.c -o $@
+$(BENCH_SCOTT_628_BIN): src/scott/p_628/fp_scott.c bench/bench_scott.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_628 bench/bench_scott.c -o $@
 
-$(BENCH_SCOTT_CORAL_BIN): src/scott/p_coral/fp_scott.c src/fp_scott_bench.c include/fp_scott_bench.h bench/bench_scott.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_coral src/fp_scott_bench.c bench/bench_scott.c -o $@
+$(BENCH_SCOTT_CORAL_BIN): src/scott/p_coral/fp_scott.c bench/bench_scott.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-unused-function -Iinclude -Isrc/scott/p_coral bench/bench_scott.c -o $@
 
 # Outputs directly to root include/generated/<prime> and src/generated/<prime>
 .PRECIOUS: include/generated/%/fp_defs.h src/generated/%/fp.c

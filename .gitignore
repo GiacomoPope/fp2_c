@@ -1,2 +1,11 @@
+# Built binaries
 /build
+# Mac nonsense
 .DS_Store
+# I have locally compiled rust code to compare
+fp2_rs
+# Python nonsense
+__pycache__
+/src/generated
+/include/generated
+
