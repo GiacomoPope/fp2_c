@@ -1,4 +1,4 @@
-#include "fp_scott_bench.h"
+#include "fp_scott.c"
 
 #include <inttypes.h>
 #include <stdint.h>
@@ -64,12 +64,12 @@ bench_value(uint64_t runs[BENCH_RUNS], unsigned loops,
 }
 
 static void
-make_inputs(scott_fp_t a, scott_fp_t b, scott_fp_t c, scott_fp_t d)
+make_inputs(spint *a, spint *b, spint *c, spint *d)
 {
-    scott_modint(1, a);
-    scott_modint(2, b);
-    scott_modint(3, c);
-    scott_modint(4, d);
+    modint(1, a);
+    modint(2, b);
+    modint(3, c);
+    modint(4, d);
 }
 
 static void
@@ -83,25 +83,25 @@ print_result(const char *name, uint64_t runs[BENCH_RUNS],
 int
 main(void)
 {
-    scott_fp_t a, b, c, d, r, t;
+    spint a[Nlimbs], b[Nlimbs], c[Nlimbs], d[Nlimbs], r[Nlimbs], t[Nlimbs];
     uint64_t runs[BENCH_RUNS];
 
     make_inputs(a, b, c, d);
 
     /* Warm up code and instruction/data caches before measurements. */
     for (unsigned i = 0; i < BENCH_WARMUP; i++) {
-        scott_modadd(a, b, r);
-        scott_modmul(a, r, a);
-        scott_modsqr(a, b);
-        scott_modmli(a, 2, r);
-        scott_modmli(a, 123456789, r);
-        scott_modmul(a, b, t);
-        scott_modmul(c, d, r);
-        scott_modadd(t, r, r);
-        scott_modmul(a, b, t);
-        scott_modmul(c, d, r);
-        scott_modsub(t, r, r);
-        scott_modhaf(a);
+        modadd(a, b, r);
+        modmul(a, r, a);
+        modsqr(a, b);
+        modmli(a, 2, r);
+        modmli(a, 123456789, r);
+        modmul(a, b, t);
+        modmul(c, d, r);
+        modadd(t, r, r);
+        modmul(a, b, t);
+        modmul(c, d, r);
+        modsub(t, r, r);
+        modhaf(a);
     }
 
     printf("\n--------------------------------------------------------------------------\n\n");
@@ -112,12 +112,12 @@ main(void)
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
-            scott_modadd(a, b, a);
-            scott_modadd(b, a, b);
-            scott_modadd(a, b, a);
-            scott_modadd(b, a, b);
-            scott_modadd(a, b, a);
-            scott_modadd(b, a, b);
+            modadd(a, b, a);
+            modadd(b, a, b);
+            modadd(a, b, a);
+            modadd(b, a, b);
+            modadd(a, b, a);
+            modadd(b, a, b);
         }
         runs[i] = cpucycles() - start;
     }
@@ -127,12 +127,12 @@ main(void)
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
-            scott_modsub(a, b, a);
-            scott_modsub(b, a, b);
-            scott_modsub(a, b, a);
-            scott_modsub(b, a, b);
-            scott_modsub(a, b, a);
-            scott_modsub(b, a, b);
+            modsub(a, b, a);
+            modsub(b, a, b);
+            modsub(a, b, a);
+            modsub(b, a, b);
+            modsub(a, b, a);
+            modsub(b, a, b);
         }
         runs[i] = cpucycles() - start;
     }
@@ -142,12 +142,12 @@ main(void)
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
-            scott_modneg(a, r);
-            scott_modneg(r, a);
-            scott_modneg(a, r);
-            scott_modneg(r, a);
-            scott_modneg(a, r);
-            scott_modneg(r, a);
+            modneg(a, r);
+            modneg(r, a);
+            modneg(a, r);
+            modneg(r, a);
+            modneg(a, r);
+            modneg(r, a);
         }
         runs[i] = cpucycles() - start;
     }
@@ -157,12 +157,12 @@ main(void)
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
-            scott_modmul(a, a, b);
-            scott_modmul(b, b, a);
-            scott_modmul(a, a, b);
-            scott_modmul(b, b, a);
-            scott_modmul(a, a, b);
-            scott_modmul(b, b, a);
+            modmul(a, a, b);
+            modmul(b, b, a);
+            modmul(a, a, b);
+            modmul(b, b, a);
+            modmul(a, a, b);
+            modmul(b, b, a);
         }
         runs[i] = cpucycles() - start;
     }
@@ -172,7 +172,7 @@ main(void)
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
-            scott_modsqr(a, a);
+            modsqr(a, a);
         }
         runs[i] = cpucycles() - start;
     }
@@ -182,12 +182,12 @@ main(void)
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
-            scott_modmli(a, 2, a);
-            scott_modmli(a, 2, a);
-            scott_modmli(a, 2, a);
-            scott_modmli(a, 2, a);
-            scott_modmli(a, 2, a);
-            scott_modmli(a, 2, a);
+            modmli(a, 2, a);
+            modmli(a, 2, a);
+            modmli(a, 2, a);
+            modmli(a, 2, a);
+            modmli(a, 2, a);
+            modmli(a, 2, a);
         }
         runs[i] = cpucycles() - start;
     }
@@ -197,12 +197,12 @@ main(void)
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
-            scott_modmli(a, 123456789, a);
-            scott_modmli(a, -123456789, a);
-            scott_modmli(a, 123456789, a);
-            scott_modmli(a, -123456789, a);
-            scott_modmli(a, 123456789, a);
-            scott_modmli(a, -123456789, a);
+            modmli(a, 123456789, a);
+            modmli(a, -123456789, a);
+            modmli(a, 123456789, a);
+            modmli(a, -123456789, a);
+            modmli(a, 123456789, a);
+            modmli(a, -123456789, a);
         }
         runs[i] = cpucycles() - start;
     }
@@ -212,12 +212,12 @@ main(void)
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
-            scott_modhaf(a);
-            scott_modhaf(b);
-            scott_modhaf(c);
-            scott_modhaf(d);
-            scott_modhaf(a);
-            scott_modhaf(b);
+            modhaf(a);
+            modhaf(b);
+            modhaf(c);
+            modhaf(d);
+            modhaf(a);
+            modhaf(b);
         }
         runs[i] = cpucycles() - start;
     }
@@ -227,19 +227,19 @@ main(void)
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_EXPENSIVE_LOOPS; n++) {
-            scott_modinv(a, r);
-            scott_modadd(r, b, a);
+            modinv(a, NULL, r);
+            modadd(r, b, a);
         }
         runs[i] = cpucycles() - start;
     }
     print_result("GF(p) inversion", runs, BENCH_EXPENSIVE_LOOPS, 1);
 
     /* GF(p) sqrt. Feed it a guaranteed square. */
-    scott_modsqr(a, r);
+    modsqr(a, r);
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_EXPENSIVE_LOOPS; n++) {
-            scott_modsqrt(r, a);
+            modsqrt(r, NULL, a);
         }
         runs[i] = cpucycles() - start;
     }
@@ -250,8 +250,8 @@ main(void)
         uint64_t start = cpucycles();
         volatile int32_t symbol = 0;
         for (unsigned n = 0; n < BENCH_EXPENSIVE_LOOPS; n++) {
-            symbol ^= scott_modqr(a);
-            symbol ^= scott_modqr(b);
+            symbol ^= modqr(NULL, a);
+            symbol ^= modqr(NULL, b);
         }
         runs[i] = cpucycles() - start;
         (void)symbol;
