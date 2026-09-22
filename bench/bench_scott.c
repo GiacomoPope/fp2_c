@@ -153,7 +153,7 @@ main(void)
     }
     print_result("GF(p) negation", runs, BENCH_LOOPS, 6);
 
-    /* GF(p) multiplication */
+    /* GF(p) multiplication, serial. */
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
@@ -166,9 +166,27 @@ main(void)
         }
         runs[i] = cpucycles() - start;
     }
-    print_result("GF(p) multiplication", runs, BENCH_LOOPS, 6);
+    print_result("GF(p) multiplication, serial", runs, BENCH_LOOPS, 6);
 
-    /* GF(p) squaring */
+    /* GF(p) multiplication, parallel. */
+    spint mx[4][Nlimbs], my[4][Nlimbs];
+    for (int l = 0; l < 4; l++) {
+        modint(l + 1, mx[l]);
+        modint(l + 5, my[l]);
+    }
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
+            for (int l = 0; l < 4; l++)
+                modmul(mx[l], my[l], mx[l]);
+            for (int l = 0; l < 4; l++)
+                modmul(my[l], mx[l], my[l]);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    print_result("GF(p) multiplication, parallel", runs, BENCH_LOOPS, 8);
+
+    /* GF(p) squaring, serial. */
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
@@ -176,7 +194,23 @@ main(void)
         }
         runs[i] = cpucycles() - start;
     }
-    print_result("GF(p) squaring", runs, BENCH_LOOPS, 1);
+    print_result("GF(p) squaring, serial", runs, BENCH_LOOPS, 1);
+
+    /* GF(p) squaring, parallel. */
+    spint sx[4][Nlimbs];
+    for (int l = 0; l < 4; l++)
+        modint(l + 1, sx[l]);
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
+            for (int l = 0; l < 4; l++)
+                modsqr(sx[l], sx[l]);
+            for (int l = 0; l < 4; l++)
+                modsqr(sx[l], sx[l]);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    print_result("GF(p) squaring, parallel", runs, BENCH_LOOPS, 8);
 
     /* GF(p) mul2: Scott's equivalent is modmli(a, 2, a). */
     for (int i = 0; i < BENCH_RUNS; i++) {

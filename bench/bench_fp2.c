@@ -102,7 +102,7 @@ main(void)
     fp2_encode(tmp, &a);
     print_result("GF(p^2) negation", runs, BENCH_LOOPS, 6);
 
-    /* GF(p^2) multiplication */
+    /* GF(p^2) multiplication, serial. */
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
@@ -116,9 +116,28 @@ main(void)
         runs[i] = cpucycles() - start;
     }
     fp2_encode(tmp, &b);
-    print_result("GF(p^2) multiplication", runs, BENCH_LOOPS, 6);
+    print_result("GF(p^2) multiplication, serial", runs, BENCH_LOOPS, 6);
 
-    /* GF(p^2) squaring */
+    /* GF(p^2) multiplication, parallel. */
+    fp2_t mx[4], my[4];
+    for (int l = 0; l < 4; l++) {
+        fp2_set_small(&mx[l], l + 1);
+        fp2_set_small(&my[l], l + 5);
+    }
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
+            for (int l = 0; l < 4; l++)
+                fp2_mul(&mx[l], &mx[l], &my[l]);
+            for (int l = 0; l < 4; l++)
+                fp2_mul(&my[l], &my[l], &mx[l]);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    fp2_encode(tmp, &my[0]);
+    print_result("GF(p^2) multiplication, parallel", runs, BENCH_LOOPS, 8);
+
+    /* GF(p^2) squaring, serial. */
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
@@ -132,7 +151,24 @@ main(void)
         runs[i] = cpucycles() - start;
     }
     fp2_encode(tmp, &a);
-    print_result("GF(p^2) squaring", runs, BENCH_LOOPS, 6);
+    print_result("GF(p^2) squaring, serial", runs, BENCH_LOOPS, 6);
+
+    /* GF(p^2) squaring, parallel. */
+    fp2_t sx[4];
+    for (int l = 0; l < 4; l++)
+        fp2_set_small(&sx[l], l + 1);
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
+            for (int l = 0; l < 4; l++)
+                fp2_sqr(&sx[l], &sx[l]);
+            for (int l = 0; l < 4; l++)
+                fp2_sqr(&sx[l], &sx[l]);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    fp2_encode(tmp, &sx[0]);
+    print_result("GF(p^2) squaring, parallel", runs, BENCH_LOOPS, 8);
 
     /* GF(p^2) double */
     for (int i = 0; i < BENCH_RUNS; i++) {

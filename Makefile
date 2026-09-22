@@ -1,15 +1,15 @@
 p308_633_VALUE := "633 * 2**308 - 1"
-p474_593_VALUE := "593 * 2**474 - 1"
-p628_317_VALUE := "317 * 2**628 - 1"
+# p474_593_VALUE := "593 * 2**474 - 1"
+# p628_317_VALUE := "317 * 2**628 - 1"
 # p_coral_VALUE := "51 * 2**2026 - 1"
 
-PRIMES        := p308_633 p474_593 p628_317 # p_coral
+PRIMES        := p308_633 # p474_593 p628_317 p_coral
 
 # Scott's own benchmark keeps its generated code under src/scott/p_XXX,
 # named independently of our p308_633-style prime identifiers.
 p308_633_SCOTT_DIR := p_308
-p474_593_SCOTT_DIR := p_474
-p628_317_SCOTT_DIR := p_628
+# p474_593_SCOTT_DIR := p_474
+# p628_317_SCOTT_DIR := p_628
 # p_coral_SCOTT_DIR  := p_coral
 
 CC        := clang

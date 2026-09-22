@@ -113,7 +113,7 @@ main(void)
     fp_encode(tmp, &a);
     print_result("GF(p) negation", runs, BENCH_LOOPS, 6);
 
-    /* GF(p) multiplication */
+    /* GF(p) multiplication, serial. */
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
@@ -127,9 +127,28 @@ main(void)
         runs[i] = cpucycles() - start;
     }
     fp_encode(tmp, &b);
-    print_result("GF(p) multiplication", runs, BENCH_LOOPS, 6);
+    print_result("GF(p) multiplication, serial", runs, BENCH_LOOPS, 6);
 
-    /* GF(p) squaring */
+    /* GF(p) multiplication, parallel. */
+    fp_t mx[4], my[4];
+    for (int l = 0; l < 4; l++) {
+        fp_set_small(&mx[l], l + 1);
+        fp_set_small(&my[l], l + 5);
+    }
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
+            for (int l = 0; l < 4; l++)
+                fp_mul(&mx[l], &mx[l], &my[l]);
+            for (int l = 0; l < 4; l++)
+                fp_mul(&my[l], &my[l], &mx[l]);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    fp_encode(tmp, &my[0]);
+    print_result("GF(p) multiplication, parallel", runs, BENCH_LOOPS, 8);
+
+    /* GF(p) squaring, serial. */
     for (int i = 0; i < BENCH_RUNS; i++) {
         uint64_t start = cpucycles();
         for (unsigned n = 0; n < BENCH_LOOPS; n++) {
@@ -143,7 +162,24 @@ main(void)
         runs[i] = cpucycles() - start;
     }
     fp_encode(tmp, &a);
-    print_result("GF(p) squaring", runs, BENCH_LOOPS, 6);
+    print_result("GF(p) squaring, serial", runs, BENCH_LOOPS, 6);
+
+    /* GF(p) squaring, parallel. */
+    fp_t sx[4];
+    for (int l = 0; l < 4; l++)
+        fp_set_small(&sx[l], l + 1);
+    for (int i = 0; i < BENCH_RUNS; i++) {
+        uint64_t start = cpucycles();
+        for (unsigned n = 0; n < BENCH_LOOPS; n++) {
+            for (int l = 0; l < 4; l++)
+                fp_sqr(&sx[l], &sx[l]);
+            for (int l = 0; l < 4; l++)
+                fp_sqr(&sx[l], &sx[l]);
+        }
+        runs[i] = cpucycles() - start;
+    }
+    fp_encode(tmp, &sx[0]);
+    print_result("GF(p) squaring, parallel", runs, BENCH_LOOPS, 8);
 
     /* GF(p) double */
     for (int i = 0; i < BENCH_RUNS; i++) {
